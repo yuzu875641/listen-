@@ -84,6 +84,13 @@ def getSearchData(q, page):
         return {"type": "unknown", "data": data_dict}
     datas_dict = json.loads(requestAPI(f"/search?q={urllib.parse.quote(q)}&page={page}&hl=jp", invidious_api.search))
     return [formatSearchData(data_dict) for data_dict in datas_dict]
+    
+async def getTrendingData(region: str):
+    path = f"/trending?region={region}&hl=jp"
+    datas_text = await run_in_threadpool(requestAPI, path, invidious_api.search)
+    datas_dict = json.loads(datas_text)
+    # トレンドデータは全て動画のはずだが、念のため整形関数を通す
+    return [formatSearchData(data_dict) for data_dict in datas_dict if data_dict.get("type") == "video"]
 
 def getChannelData(channelid):
     t = json.loads(requestAPI(f"/channels/{urllib.parse.quote(channelid)}", invidious_api.channel))
@@ -114,9 +121,16 @@ invidious_api = InvidiousAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.get('/', response_class=HTMLResponse)
-async def home_redirect(request: Request):
-    return RedirectResponse(url="/search?q=popular", status_code=302)
-
+async def home(request: Request, proxy: Union[str] = Cookie(None)): 
+    results = await getTrendingData(region="JP")
+    return templates.TemplateResponse("search.html", {
+        "request": request, 
+        "results": results, 
+        "word": "人気急上昇動画", 
+        "next": "", 
+        "proxy": proxy
+    })
+    
 @app.get('/watch', response_class=HTMLResponse)
 async def video(v:str, request: Request, proxy: Union[str] = Cookie(None)):
     video_data = getVideoData(v)
