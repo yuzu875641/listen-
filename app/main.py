@@ -33,9 +33,9 @@ failed = "Load Failed"
 
 # Invidious APIリスト (仮。実際は動的に取得するのが理想)
 invidious_api_data = {
-    'video': ['https://invidious.tokyo/'], 'playlist': ['https://invidious.tokyo/'], 
-    'search': ['https://invidious.tokyo/'], 'channel': ['https://invidious.tokyo/'], 
-    'comments': ['https://invidious.tokyo/']
+    'video': ['https://yt.omada.cafe/'], 'playlist': ['https://iv.melmac.space/'], 
+    'search': ['https://iv.melmac.space/'], 'channel': ['https://iv.melmac.space/'], 
+    'comments': ['https://iv.melmac.space/']
 }
 
 class InvidiousAPI:
