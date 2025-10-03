@@ -1,3 +1,5 @@
+# app/main.py
+
 import json
 import time
 import requests
@@ -30,7 +32,7 @@ max_time = 10.0
 max_api_wait_time = (3.0, 5.0)
 failed = "Load Failed"
 
-# ★ ユーザー指定の Invidious APIリストを適用
+# ユーザー指定の Invidious APIリスト
 invidious_api_data = {
     'video': ['https://yt.omada.cafe/'], 
     'playlist': ['https://iv.melmac.space/'], 
@@ -52,8 +54,6 @@ def requestAPI(path, api_urls):
     for api in api_urls:
         if time.time() - starttime >= max_time - 1: break
         try:
-            # Invidious APIはURLの末尾にスラッシュを持つ場合があるため、pathの先頭にスラッシュがあるか確認するとより堅牢ですが、
-            # requests.getが適切に処理することが多いため、ここでは簡潔さを優先します。
             res = requests.get(api + 'api/v1' + path, headers=getRandomUserAgent(), timeout=max_api_wait_time)
             if res.status_code == requests.codes.ok and isJSON(res.text): return res.text
             else: updateList(api_urls, api)
@@ -132,8 +132,15 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.get('/', response_class=HTMLResponse)
 async def home(request: Request, proxy: Union[str] = Cookie(None)):
-    """ルートアクセス時に検索画面(index.html)を表示する"""
-    return templates.TemplateResponse("index.html", {"request": request, "proxy": proxy})
+    """★ エラー修正済み: index.htmlが存在しないため、search.htmlを空の結果で表示する"""
+    # 検索画面を意図しているため、search.htmlを空の結果リストでレンダリング
+    return templates.TemplateResponse("search.html", {
+        "request": request, 
+        "results": [],
+        "word": "動画を検索",
+        "next": "",
+        "proxy": proxy
+    })
 
 @app.get('/watch', response_class=HTMLResponse)
 async def video(v:str, request: Request, proxy: Union[str] = Cookie(None)):
