@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+
+{% block title %}{{ video_title }} - yuzutube{% endblock %}
+
+{% block content %}
+<div class="watch-page-container" style="display: flex; padding: 24px;">
+    <div class="main-video-area" style="flex-basis: 70%; max-width: 1000px; margin-right: 24px;">
+        <video controls autoplay style="width: 100%; aspect-ratio: 16/9; background-color: black;">
+            <source src="{{ videourls[0] }}" type="video/mp4">
+            ブラウザが動画タグをサポートしていません。
+        </video>
+
+        <h1 style="font-size: 24px; margin: 16px 0;">{{ video_title }}</h1>
+
+        <div class="metadata" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--yt-separator); padding-bottom: 8px;">
+            <div class="channel-info" style="display: flex; align-items: center;">
+                <a href="/channel/{{ author_id }}">
+                    <img src="{{ author_icon }}" style="width: 40px; height: 40px; border-radius: 50%; margin-right: 12px;">
+                </a>
+                <div>
+                    <a href="/channel/{{ author_id }}" style="color: var(--yt-text); font-weight: bold;">{{ author }}</a>
+                    <p style="font-size: 12px; color: var(--yt-sub-text);">チャンネル登録者数: {{ subscribers_count }}</p>
+                </div>
+            </div>
+            <div class="counts" style="color: var(--yt-sub-text); font-size: 14px;">
+                <span>{{ view_count }} 回視聴</span>
+                <span style="margin-left: 10px;">👍 {{ like_count }}</span>
+                <a href="/comments?v={{ videoid }}" style="margin-left: 20px; color: var(--yt-sub-text);">コメントを見る</a>
+            </div>
+        </div>
+        
+        <div class="description" style="margin-top: 16px;">
+            <p>{{ description | safe }}</p>
+        </div>
+    </div>
+
+    <div class="recommended-videos" style="flex-basis: 30%;">
+        <h2 style="font-size: 18px; margin-top: 0;">おすすめ</h2>
+        {% for video in recommended_videos %}
+        <div class="recommended-card" style="margin-bottom: 12px;">
+            <a href="/watch?v={{ video.video_id }}" style="display: flex;">
+                <img src="/thumbnail?v={{ video.video_id }}" style="width: 168px; height: 94px; object-fit: cover; border-radius: 4px; margin-right: 8px;">
+                <div class="recommended-meta">
+                    <p style="color: var(--yt-text); font-size: 14px; margin: 0;">{{ video.title }}</p>
+                    <p style="color: var(--yt-sub-text); font-size: 12px; margin: 2px 0;">{{ video.author }}</p>
+                    <p style="color: var(--yt-sub-text); font-size: 12px; margin: 2px 0;">{{ video.view_count_text }}</p>
+                </div>
+            </a>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}
