@@ -1,0 +1,160 @@
+import json
+import time
+import requests
+import datetime
+import urllib.parse
+from typing import Union
+from fastapi import FastAPI, Response, Request, Cookie
+from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.templating import Jinja2Templates
+from fastapi.staticfiles import StaticFiles
+
+# ----------------------------------------------------
+# 設定とユーティリティ
+# ----------------------------------------------------
+# Jinja2テンプレートエンジンの初期化
+# FastAPIの実行場所に応じてパスを調整してください。
+templates = Jinja2Templates(directory="templates")
+
+class APITimeoutError(Exception): pass
+def getRandomUserAgent(): return {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/94.0.4606.61 Safari/537.36'}
+def isJSON(json_str):
+    try: json.loads(json_str); return True
+    except json.JSONDecodeError: return False
+def updateList(list_obj, str_val): 
+    try: list_obj.remove(str_val)
+    except ValueError: pass
+    return list_obj
+
+# グローバル変数 (設定値)
+max_time = 10.0
+max_api_wait_time = (3.0, 5.0)
+failed = "Load Failed"
+
+# Invidious APIリスト (仮。実際は動的に取得するのが理想)
+invidious_api_data = {
+    'video': ['https://invidious.tokyo/'], 'playlist': ['https://invidious.tokyo/'], 
+    'search': ['https://invidious.tokyo/'], 'channel': ['https://invidious.tokyo/'], 
+    'comments': ['https://invidious.tokyo/']
+}
+
+class InvidiousAPI:
+    def __init__(self):
+        self.all = invidious_api_data
+        self.video = self.all['video']; self.playlist = self.all['playlist']
+        self.search = self.all['search']; self.channel = self.all['channel']
+        self.comments = self.all['comments']; self.check_video = False
+
+def requestAPI(path, api_urls):
+    """同期的にAPIリクエストを行う (FastAPIの実行環境に注意)"""
+    # ... (前回の回答と同じロジックを実装) ...
+    starttime = time.time()
+    for api in api_urls:
+        if time.time() - starttime >= max_time - 1: break
+        try:
+            res = requests.get(api + 'api/v1' + path, headers=getRandomUserAgent(), timeout=max_api_wait_time)
+            if res.status_code == requests.codes.ok and isJSON(res.text): return res.text
+            else: updateList(api_urls, api)
+        except: updateList(api_urls, api)
+    raise APITimeoutError("APIがタイムアウトしました")
+
+# --- データ取得・整形ロジック (同期関数) ---
+# ※ ルートハンドラから呼ばれるため、awaitを使わないように注意
+
+def getVideoData(videoid):
+    t = json.loads(requestAPI(f"/videos/{urllib.parse.quote(videoid)}", invidious_api.video))
+    recommended_videos = t.get('recommendedvideo') or t.get('recommendedVideos') or []
+    return [{
+        'video_urls': list(reversed([i["url"] for i in t["formatStreams"]]))[:2],
+        'description_html': t["descriptionHtml"].replace("\n", "<br>"), 'title': t["title"],
+        'length_text': str(datetime.timedelta(seconds=t["lengthSeconds"])), 'author_id': t["authorId"], 'author': t["author"], 'author_thumbnails_url': t["authorThumbnails"][-1]["url"], 'view_count': t["viewCount"], 'like_count': t["likeCount"], 'subscribers_count': t["subCountText"]
+    }, [
+        {"video_id": i["videoId"], "title": i["title"], "author_id": i["authorId"], "author": i["author"], "length_text": str(datetime.timedelta(seconds=i["lengthSeconds"])), "view_count_text": i["viewCountText"]}
+        for i in recommended_videos
+    ]]
+    
+def getSearchData(q, page):
+    def formatSearchData(data_dict):
+        if data_dict["type"] == "video": return {"type": "video", "title": data_dict.get("title", failed), "id": data_dict.get("videoId", failed), "author": data_dict.get("author", failed), "published": data_dict.get("publishedText", failed), "length": str(datetime.timedelta(seconds=data_dict.get("lengthSeconds", 0))), "view_count_text": data_dict.get("viewCountText", failed)}
+        elif data_dict["type"] == "playlist": return {"type": "playlist", "title": data_dict.get("title", failed), "id": data_dict.get('playlistId', failed), "thumbnail": data_dict.get("playlistThumbnail", failed), "count": data_dict.get("videoCount", failed)}
+        elif data_dict["type"] == "channel":
+            thumbnail_url = data_dict.get('authorThumbnails', [{}])[-1].get('url', failed)
+            thumbnail = "https://" + thumbnail_url.lstrip("http://").lstrip("//") if not thumbnail_url.startswith("https") else thumbnail_url
+            return {"type": "channel", "author": data_dict.get("author", failed), "id": data_dict.get("authorId", failed), "thumbnail": thumbnail}
+        return {"type": "unknown", "data": data_dict}
+    datas_dict = json.loads(requestAPI(f"/search?q={urllib.parse.quote(q)}&page={page}&hl=jp", invidious_api.search))
+    return [formatSearchData(data_dict) for data_dict in datas_dict]
+
+def getChannelData(channelid):
+    t = json.loads(requestAPI(f"/channels/{urllib.parse.quote(channelid)}", invidious_api.channel))
+    latest_videos = t.get('latestvideo') or t.get('latestVideos') or []
+    return [[
+        {"type":"video", "title": i["title"], "id": i["videoId"], "author": t["author"], "published": i["publishedText"], "view_count_text": i['viewCountText'], "length_str": str(datetime.timedelta(seconds=i["lengthSeconds"]))}
+        for i in latest_videos
+    ], {
+        "channel_name": t.get("author", failed), "channel_icon": t.get("authorThumbnails", [{}])[-1].get("url", failed), "channel_profile": t.get("descriptionHtml", failed),
+        "author_banner": urllib.parse.quote(t.get("authorBanners", [{}])[0].get("url", ""), safe="-_.~/:") if 'authorBanners' in t and len(t['authorBanners']) else '',
+        "subscribers_count": t.get("subCount", failed), "tags": t.get("tags", [])
+    }]
+
+def getPlaylistData(listid, page):
+    t = json.loads(requestAPI(f"/playlists/{urllib.parse.quote(listid)}?page={urllib.parse.quote(str(page))}", invidious_api.playlist))["videos"]
+    return [{"title": i["title"], "id": i["videoId"], "authorId": i["authorId"], "author": i["author"], "type": "video"} for i in t]
+
+def getCommentsData(videoid):
+    t = json.loads(requestAPI(f"/comments/{urllib.parse.quote(videoid)}?hl=jp", invidious_api.comments))["comments"]
+    return [{"author": i["author"], "authoricon": i["authorThumbnails"][-1]["url"], "authorid": i["authorId"], "body": i["contentHtml"].replace("\n", "<br>")} for i in t]
+
+
+# ----------------------------------------------------
+# FastAPIアプリ本体とルート定義
+# ----------------------------------------------------
+app = FastAPI()
+invidious_api = InvidiousAPI() 
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+@app.get('/', response_class=HTMLResponse)
+async def home_redirect(request: Request):
+    return RedirectResponse(url="/search?q=popular", status_code=302)
+
+@app.get('/watch', response_class=HTMLResponse)
+async def video(v:str, request: Request, proxy: Union[str] = Cookie(None)):
+    video_data = getVideoData(v)
+    return templates.TemplateResponse('video.html', {
+        "request": request, "videoid": v, "videourls": video_data[0]['video_urls'], "description": video_data[0]['description_html'], "video_title": video_data[0]['title'], "author_id": video_data[0]['author_id'], "author_icon": video_data[0]['author_thumbnails_url'], "author": video_data[0]['author'], "length_text": video_data[0]['length_text'], "view_count": video_data[0]['view_count'], "like_count": video_data[0]['like_count'], "subscribers_count": video_data[0]['subscribers_count'], "recommended_videos": video_data[1], "proxy":proxy
+    })
+
+@app.get("/search", response_class=HTMLResponse)
+async def search(q:str, request: Request, page:Union[int, None]=1, proxy: Union[str] = Cookie(None)):
+    return templates.TemplateResponse("search.html", {"request": request, "results":getSearchData(q, page), "word":q, "next":f"/search?q={q}&page={page + 1}", "proxy":proxy})
+
+@app.get("/hashtag/{tag}")
+async def hashtag_search(tag:str):
+    return RedirectResponse(f"/search?q={tag}", status_code=302)
+
+@app.get("/channel/{channelid}", response_class=HTMLResponse)
+async def channel(channelid:str, request: Request, proxy: Union[str] = Cookie(None)):
+    t = getChannelData(channelid)
+    return templates.TemplateResponse("channel.html", {"request": request, "results": t[0], "channel_name": t[1]["channel_name"], "channel_icon": t[1]["channel_icon"], "channel_profile": t[1]["channel_profile"], "cover_img_url": t[1]["author_banner"], "subscribers_count": t[1]["subscribers_count"], "proxy": proxy})
+
+@app.get("/playlist", response_class=HTMLResponse)
+async def playlist(list_id:str, request: Request, page:Union[int, None]=1, proxy: Union[str] = Cookie(None)):
+    return templates.TemplateResponse("search.html", {"request": request, "results": getPlaylistData(list_id, str(page)), "word": "", "next": f"/playlist?list={list_id}&page={page + 1}", "proxy": proxy})
+
+@app.get("/comments", response_class=HTMLResponse)
+async def comments(request: Request, v:str):
+    return templates.TemplateResponse("comments.html", {"request": request, "comments": getCommentsData(v)})
+
+@app.get("/thumbnail")
+def thumbnail(v:str):
+    # 非同期ではないが、FastAPIは個別のスレッドで処理するため、そのまま残します
+    return Response(content = requests.get(f"https://img.youtube.com/vi/{v}/0.jpg").content, media_type="image/jpeg")
+
+@app.get("/suggest")
+def suggest(keyword:str):
+    res_text = requests.get("http://www.google.com/complete/search?client=youtube&hl=ja&ds=yt&q=" + urllib.parse.quote(keyword), headers=getRandomUserAgent()).text
+    return [i[0] for i in json.loads(res_text[19:-1])[1]]
+
+# ----------------------------------------------------
+# (ローカル実行用) uvicorn app.main:app --reload 
+# ----------------------------------------------------
