@@ -1,10 +1,9 @@
-# app/main.py
-
 import json
 import time
 import requests
 import datetime
 import urllib.parse
+from pathlib import Path  # ★ 新規追加
 from typing import Union
 from fastapi import FastAPI, Response, Request, Cookie
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -15,7 +14,12 @@ from starlette.concurrency import run_in_threadpool
 # ----------------------------------------------------
 # 設定とユーティリティ
 # ----------------------------------------------------
-templates = Jinja2Templates(directory="templates")
+# Vercel環境でパスが正しく解決されるようにPathlibを使用
+# main.pyは /app/main.py にあると仮定し、BASE_DIRはプロジェクトルートを指します
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+# テンプレートエンジンとディレクトリの設定
+templates = Jinja2Templates(directory=str(BASE_DIR / "templates")) # ★ パス修正
 
 class APITimeoutError(Exception): pass
 def getRandomUserAgent(): return {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/94.0.4606.61 Safari/537.36'}
@@ -128,12 +132,18 @@ async def getCommentsData(videoid):
 # ----------------------------------------------------
 app = FastAPI()
 invidious_api = InvidiousAPI() 
-app.mount("/static", StaticFiles(directory="static"), name="static")
+
+# ★ 修正: StaticFilesのdirectoryをPathlibを使って絶対パスで指定
+app.mount(
+    "/static", 
+    StaticFiles(directory=str(BASE_DIR / "static")), 
+    name="static"
+)
+
 
 @app.get('/', response_class=HTMLResponse)
 async def home(request: Request, proxy: Union[str] = Cookie(None)):
-    """★ エラー修正済み: index.htmlが存在しないため、search.htmlを空の結果で表示する"""
-    # 検索画面を意図しているため、search.htmlを空の結果リストでレンダリング
+    """index.htmlが見つからないエラーを回避し、search.htmlを空の結果で表示する"""
     return templates.TemplateResponse("search.html", {
         "request": request, 
         "results": [],
