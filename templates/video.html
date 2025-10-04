@@ -5,7 +5,7 @@
 {% block content %}
 <div class="watch-page-container">
     <div class="main-video-area">
-        <div style="margin-bottom: 10px;">
+        <div style="margin-bottom: 10px; display: flex; align-items: center; gap: 10px;">
             <button id="yuzu-btn" onclick="showPlayer('yuzutube-player');" 
                 style="padding: 8px 15px; cursor: pointer; border: 1px solid var(--yt-sub-text); color: var(--yt-text); background-color: var(--yt-light-dark);">
                 ストリームURLで再生
@@ -14,22 +14,38 @@
                 style="padding: 8px 15px; cursor: pointer; border: 1px solid var(--yt-sub-text); color: var(--yt-text); background-color: var(--yt-bg);">
                 YouTube埋め込みで再生
             </button>
+            
+            {# --- 画質変更ボタンを追加 --- #}
+            <div id="quality-selector" style="display: block; margin-left: 20px;">
+                <span style="color: var(--yt-text); margin-right: 5px;">画質:</span>
+                <select id="itag-select" onchange="changeQuality(this.value, '{{ videoid }}');" 
+                        style="padding: 5px; border: 1px solid var(--yt-sub-text); background-color: var(--yt-light-dark); color: var(--yt-text); border-radius: 4px;">
+                    {# itagのオプションリスト。ここでは91をデフォルトとして選択 #}
+                    <option value="96">1080p60 (96)</option>
+                    <option value="95">1080p (95)</option>
+                    <option value="301">1080p60 WebM (301)</option>
+                    <option value="300">720p60 WebM (300)</option>
+                    <option value="94">720p (94)</option>
+                    <option value="93">480p (93)</option>
+                    <option value="92">360p (92)</option>
+                    <option value="91" selected>240p (91)</option>
+                </select>
+            </div>
+            {# -------------------------- #}
         </div>
 
         <div id="yuzutube-player" style="display: block; width: 100%; aspect-ratio: 16/9; background-color: black; position: relative; overflow: hidden; border-radius: 8px;">
-            {% if videourls and videourls[0] != "Load Failed" %}
-                <video controls autoplay
-                    style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;">
-                    <source src="{{ videourls[0] }}" type="application/x-mpegURL">
-                    <div style="color: white; display: flex; align-items: center; justify-content: center; height: 100%;">
-                        お使いのブラウザは動画形式をサポートしていません。
-                    </div>
-                </video>
-            {% else %}
-                <div style="color: white; display: flex; align-items: center; justify-content: center; height: 100%; font-size: 18px;">
-                    🚫 **動画ストリームの取得に失敗しました。**
+            {# video要素とsource要素にIDを追加し、初期URLを設定 #}
+            <video id="stream-video" controls autoplay
+                style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;">
+                {# ユーザーが指定したURL形式とデフォルトのitag=91を使用 #}
+                <source id="video-source" 
+                        src="https://pooo-eta.vercel.app/watch?v={{ videoid }}&itag=91" 
+                        type="application/x-mpegURL">
+                <div style="color: white; display: flex; align-items: center; justify-content: center; height: 100%;">
+                    お使いのブラウザは動画形式をサポートしていません。
                 </div>
-            {% endif %}
+            </video>
         </div>
 
         <div id="youtube-embed-player" style="display: none; width: 100%; aspect-ratio: 16/9; position: relative; overflow: hidden; border-radius: 8px;">
@@ -93,7 +109,7 @@
     function loadComments(videoId) {
         const commentList = document.getElementById('comment-list');
         
-        // ローディング表示に切り替える（ここでは初期表示として既に設定済み）
+        // ローディング表示に切り替える
         commentList.innerHTML = '<div style="color: var(--yt-sub-text);">コメントを読み込み中...</div>';
         
         // /comments?v=<videoid> エンドポイントからHTMLフラグメントをフェッチ
@@ -123,8 +139,9 @@
         const youtubePlayer = document.getElementById('youtube-embed-player');
         const yuzuBtn = document.getElementById('yuzu-btn');
         const youtubeBtn = document.getElementById('youtube-btn');
-        // ストリームURLの動画要素を取得
-        const videoElement = yuzuPlayer.querySelector('video'); 
+        const qualitySelector = document.getElementById('quality-selector');
+        // ストリームURLの動画要素をIDで取得
+        const videoElement = document.getElementById('stream-video'); 
 
         if (playerId === 'yuzutube-player') {
             // ストリームURLによるプレーヤーを表示
@@ -134,8 +151,8 @@
             // ボタンのスタイル更新
             yuzuBtn.style.backgroundColor = 'var(--yt-light-dark)';
             youtubeBtn.style.backgroundColor = 'var(--yt-bg)';
-            
-            // YouTube埋め込み側は<iframe>のため、非表示で自動的に再生停止されることを期待
+            // ストリーム再生時のみ画質セレクタを表示
+            qualitySelector.style.display = 'block';
             
         } else {
             // YouTube埋め込みプレーヤーを表示
@@ -145,11 +162,40 @@
             // ボタンのスタイル更新
             yuzuBtn.style.backgroundColor = 'var(--yt-bg)';
             youtubeBtn.style.backgroundColor = 'var(--yt-light-dark)';
+            // YouTube埋め込み再生時は画質セレクタを非表示
+            qualitySelector.style.display = 'none';
 
-            // ★ ストリームURLの動画プレーヤーを非表示にする際、再生を一時停止
+            // ストリームURLの動画プレーヤーを非表示にする際、再生を一時停止
             if (videoElement) {
                 videoElement.pause();
             }
+        }
+    }
+
+    /**
+     * 新しいitagに基づいてストリームURLを更新し、動画をリロードする関数
+     * @param {string} itag - 選択された動画のitag
+     * @param {string} videoId - 現在の動画ID
+     */
+    function changeQuality(itag, videoId) {
+        const videoElement = document.getElementById('stream-video');
+        const sourceElement = document.getElementById('video-source');
+        
+        // 新しいURLを生成: https://pooo-eta.vercel.app/watch?v=Tq9EKRovwbE&itag={itag}
+        const newUrl = `https://pooo-eta.vercel.app/watch?v=${videoId}&itag=${itag}`;
+        
+        if (videoElement && sourceElement) {
+            // source要素のsrc属性を更新
+            sourceElement.src = newUrl;
+            
+            // video要素に新しいソースを読み込ませる
+            videoElement.load();
+            
+            // ロード後、自動的に再生を試みる
+            // ブラウザの設定によっては自動再生がブロックされる可能性がある
+            videoElement.play().catch(error => {
+                 console.log("動画の自動再生に失敗しました (ユーザー操作が必要):", error);
+            });
         }
     }
 
