@@ -1,11 +1,33 @@
-{% extends "base.html" %}
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ホーム - yuzutube</title>
+    <style>
+        :root {
+            --yt-red: #ff0000;
+            --yt-text: #ffffff;
+            --yt-dark: #0f0f0f;
+            --yt-light-dark: #272727;
+            --yt-separator: #303030;
+        }
+        body {
+            background-color: var(--yt-dark);
+            color: var(--yt-text);
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh; 
+        }
+    </style>
+</head>
+<body>
 
-{% block title %}ホーム - yuzutube{% endblock %}
-
-{% block header %}{% endblock %} 
-
-{% block content %}
-<div class="home-container" style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: calc(100vh - 56px - 40px); text-align: center; padding: 20px;">
+<div class="home-container" style="display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 20px;">
     
     <h1 style="font-size: 48px; font-weight: bold; margin-bottom: 24px; color: var(--yt-red);">
         yuzu<span style="color: var(--yt-text);">tube</span>
@@ -33,4 +55,5 @@
 
 </div>
 
-{% endblock %}
+</body>
+</html>
