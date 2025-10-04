@@ -10,9 +10,9 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool 
-import logging # Logging module added
+import logging 
 
-# Logging setup initialization
+# ロギング設定の初期化
 logging.basicConfig(level=logging.INFO, 
                     format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -26,9 +26,9 @@ def isJSON(json_str):
     try: json.loads(json_str); return True
     except json.JSONDecodeError: return False
 
-# Global Configuration (STRICT TIMEOUTS APPLIED)
-max_time = 5.0  # Reduced to 5.0 seconds total attempt time
-max_api_wait_time = (1.5, 3.0) # Reduced per-request connection/read time
+# Global Configuration
+max_time = 5.0  
+max_api_wait_time = (1.5, 3.0) 
 failed = "Load Failed"
 
 invidious_api_data = {
@@ -80,7 +80,6 @@ class InvidiousAPI:
         self.comments = list(self.all['comments']); 
         self.check_video = False
 
-# Function with detailed logging
 def requestAPI(path, api_urls):
     """
     Sequentially attempts API requests using the provided list of URLs.
@@ -172,8 +171,7 @@ async def getCommentsData(videoid):
     t = json.loads(t_text)["comments"]
     return [{"author": i["author"], "authoricon": i["authorThumbnails"][-1]["url"], "authorid": i["authorId"], "body": i["contentHtml"].replace("\n", "<br>")} for i in t]
 
-
-# Function with detailed logging and specific timeout
+# 修正された getPrimaryStreamUrl 関数 (最大15秒タイムアウト)
 async def getPrimaryStreamUrl(videoid):
     """
     Fetches the primary video stream URL from the user-specified external API (siawaseok.f5.si).
@@ -181,8 +179,8 @@ async def getPrimaryStreamUrl(videoid):
     api_url = f"https://siawaseok.f5.si/api/2/streams/{urllib.parse.quote(videoid)}"
     logger.info(f"--- Stream API Request Started for video: {videoid} ---")
     
-    # Specific, strict timeout for the new stream API
-    STREAM_API_TIMEOUT = (15.0, 5.0)
+    # 修正: タイムアウトを最大約15秒 (接続3秒 + 読み取り12秒) に緩和
+    STREAM_API_TIMEOUT = (3.0, 12.0)
 
     def fetch_stream_url_sync():
         try:
@@ -192,7 +190,7 @@ async def getPrimaryStreamUrl(videoid):
             if res.status_code == requests.codes.ok and isJSON(res.text):
                 data = json.loads(res.text)
                 
-                # Extract 'url' key
+                # 'url'キーの抽出
                 result_url = None
                 if isinstance(data, list) and data:
                     result_url = data[0].get("url")
@@ -213,7 +211,7 @@ async def getPrimaryStreamUrl(videoid):
             logger.error(f"ERROR: Stream API request failed due to exception (Timeout/Connection): {type(e).__name__}")
             return None
 
-    # Run in thread pool
+    # スレッドプールで実行
     result_url = await run_in_threadpool(fetch_stream_url_sync)
     
     final_url = result_url if result_url else failed
