@@ -38,14 +38,16 @@
                 🔄 動画ストリームを読み込み中...
             </div>
             
-            {# ★★★ <embed> タグを使用して動画を埋め込み ★★★ #}
-            <embed id="stream-embed"
-                type="application/x-mpegURL" 
-                src="https://pooo-eta.vercel.app/watch?v={{ videoid }}&itag=91" 
-                width="100%" height="100%"
-                style="position: absolute; top: 0; left: 0;">
-            {# <embed>タグは、通常コントロールや自動再生をサポートしますが、ブラウザ依存性が高くなります #}
-
+            {# ★★★ 全画面表示に対応した標準の <video> タグを使用 ★★★ #}
+            <video id="stream-video" controls autoplay
+                style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;">
+                <source id="video-source" 
+                        src="https://pooo-eta.vercel.app/watch?v={{ videoid }}&itag=91" 
+                        type="application/x-mpegURL">
+                <div style="color: white; display: flex; align-items: center; justify-content: center; height: 100%;">
+                    お使いのブラウザは動画形式をサポートしていません。
+                </div>
+            </video>
         </div>
 
         <div id="youtube-embed-player" style="display: none; width: 100%; aspect-ratio: 16/9; position: relative; overflow: hidden; border-radius: 8px;">
@@ -132,8 +134,8 @@
         const yuzuBtn = document.getElementById('yuzu-btn');
         const youtubeBtn = document.getElementById('youtube-btn');
         const qualitySelector = document.getElementById('quality-selector');
-        // ★ Embed要素を取得
-        const embedElement = document.getElementById('stream-embed'); 
+        // ★ video要素を取得
+        const videoElement = document.getElementById('stream-video'); 
         const loadMessage = document.getElementById('video-load-message');
 
         if (playerId === 'yuzutube-player') {
@@ -144,15 +146,17 @@
             youtubeBtn.style.backgroundColor = 'var(--yt-bg)';
             qualitySelector.style.display = 'block';
 
-            // ★ Embed要素はpause/playメソッドを持たないため、ロードメッセージの表示のみ調整
+            // ロードが完了していない場合にのみメッセージを表示
             loadMessage.innerHTML = '🔄 動画ストリームを読み込み中...';
-            // Embedのロード状態を正確に判定するのは難しいため、常にロードメッセージを短時間表示
-            loadMessage.style.display = 'flex';
-            setTimeout(() => {
-                // 読み込みが完了したと見なして非表示にする (仮の対策)
-                loadMessage.style.display = 'none'; 
-            }, 3000); // 3秒後にメッセージを非表示
-
+            if (videoElement.readyState < 3) {
+                 loadMessage.style.display = 'flex';
+            }
+            
+            // 再生を試みる (自動再生がブロックされる場合がある)
+            if (videoElement.paused) {
+                videoElement.play().catch(error => console.log("自動再生がブロックされました:", error));
+            }
+            
         } else {
             yuzuPlayer.style.display = 'none';
             youtubePlayer.style.display = 'block';
@@ -161,6 +165,10 @@
             youtubeBtn.style.backgroundColor = 'var(--yt-light-dark)';
             qualitySelector.style.display = 'none';
 
+            // ストリーム動画を一時停止し、ロードメッセージを非表示
+            if (videoElement) {
+                videoElement.pause();
+            }
             loadMessage.style.display = 'none';
         }
     }
@@ -169,29 +177,45 @@
      * 新しいitagに基づいてストリームURLを更新し、動画をリロードする関数
      */
     function changeQuality(itag, videoId) {
-        // ★ Embed要素を取得
-        const embedElement = document.getElementById('stream-embed');
+        const videoElement = document.getElementById('stream-video');
+        const sourceElement = document.getElementById('video-source');
         const loadMessage = document.getElementById('video-load-message');
         
         // 新しいURLを生成
         const newUrl = `https://pooo-eta.vercel.app/watch?v=${videoId}&itag=${itag}`;
         
-        if (embedElement) {
+        if (videoElement && sourceElement) {
             // ロード開始時にメッセージを表示
             loadMessage.innerHTML = '🔄 動画ストリームを読み込み中...';
             loadMessage.style.display = 'flex';
             
-            // src属性を更新することで、Embed要素に再ロードを促す
-            embedElement.src = newUrl;
+            // 既存のイベントリスナーを一度クリア
+            videoElement.removeEventListener('canplay', handleCanplay);
+            videoElement.removeEventListener('error', handleError);
             
-            // ★ Embedはイベントリスナーが不安定なため、setTimeoutでロード完了を擬似的に表現
-            setTimeout(() => {
-                // 読み込みが完了したと見なして非表示にする (仮の対策)
-                loadMessage.style.display = 'none'; 
-            }, 3000); // 3秒後にメッセージを非表示
-
-            // ★ Embedでのエラー検出は困難なため、エラーメッセージの表示は省略します
+            sourceElement.src = newUrl;
+            videoElement.load();
+            
+            // 新しいイベントリスナーを追加
+            videoElement.addEventListener('canplay', handleCanplay, { once: true });
+            videoElement.addEventListener('error', handleError, { once: true });
         }
+    }
+
+    // イベントリスナーのハンドラ関数を定義
+    function handleCanplay() {
+        const videoElement = document.getElementById('stream-video');
+        const loadMessage = document.getElementById('video-load-message');
+        
+        loadMessage.style.display = 'none';
+        videoElement.play().catch(error => {
+            console.log("動画の自動再生に失敗しました (ユーザー操作が必要):", error);
+        });
+    }
+
+    function handleError() {
+        const loadMessage = document.getElementById('video-load-message');
+        loadMessage.innerHTML = '🚫 **動画ストリームの取得に失敗しました。** 画質を変更するか、YouTube埋め込みをお試しください。';
     }
     
     // ページロード時の初期設定
@@ -199,13 +223,13 @@
         const videoId = '{{ videoid }}';
         loadComments(videoId);
         
-        // 初回ロード時もメッセージを短時間表示し、読み込み中であることを伝える
-        const loadMessage = document.getElementById('video-load-message');
-        loadMessage.style.display = 'flex';
-        setTimeout(() => {
-            loadMessage.style.display = 'none'; 
-        }, 3000); 
+        // 初期ロードで動画にイベントリスナーを設定
+        const videoElement = document.getElementById('stream-video');
+        videoElement.addEventListener('canplay', handleCanplay, { once: true });
+        videoElement.addEventListener('error', handleError, { once: true });
+        
+        // 初期ロードメッセージを表示
+        document.getElementById('video-load-message').style.display = 'flex';
     });
-
 </script>
 {% endblock %}
