@@ -33,7 +33,12 @@
         </div>
 
         <div id="yuzutube-player" style="display: block; width: 100%; aspect-ratio: 16/9; background-color: black; position: relative; overflow: hidden; border-radius: 8px;">
-            {# ★★★ Iframeを使用して動画ストリームURLを埋め込み、全画面を許可 ★★★ #}
+            {# 動画の読み込み失敗時のメッセージを扱うためのコンテナ #}
+            <div id="video-load-message" style="color: white; display: flex; align-items: center; justify-content: center; height: 100%; font-size: 18px; position: absolute; top: 0; left: 0; width: 100%; z-index: 10; background-color: rgba(0, 0, 0, 0.8); display: none;">
+                🔄 **動画ストリームを読み込み中... 少しお待ちください。**
+            </div>
+            
+            {# Iframeを使用して動画ストリームURLを埋め込み、全画面を許可 #}
             <iframe id="stream-iframe"
                 src="https://pooo-eta.vercel.app/watch?v={{ videoid }}&itag=91" 
                 frameborder="0"
@@ -101,7 +106,11 @@
 </div>
 
 <script>
+    // グローバルなタイマーIDを保持
+    let loadTimer;
+
     function loadComments(videoId) {
+        // ... (コメントロード関数は変更なし) ...
         const commentList = document.getElementById('comment-list');
         commentList.innerHTML = '<div style="color: var(--yt-sub-text);">コメントを読み込み中...</div>';
         fetch(`/comments?v=${videoId}`)
@@ -129,10 +138,7 @@
         const yuzuBtn = document.getElementById('yuzu-btn');
         const youtubeBtn = document.getElementById('youtube-btn');
         const qualitySelector = document.getElementById('quality-selector');
-        // Iframe要素を取得
-        const streamIframe = document.getElementById('stream-iframe'); 
-        
-        // ★ Iframe内の動画を停止させることはできないため、ここでは要素の表示/非表示のみを行う
+        const loadMessage = document.getElementById('video-load-message');
 
         if (playerId === 'yuzutube-player') {
             yuzuPlayer.style.display = 'block';
@@ -142,6 +148,16 @@
             youtubeBtn.style.backgroundColor = 'var(--yt-bg)';
             qualitySelector.style.display = 'block';
 
+            // ★ プレイヤーに切り替えた際、すぐにロードメッセージを短時間表示
+            loadMessage.innerHTML = '🔄 動画ストリームを読み込み中... 少しお待ちください。';
+            loadMessage.style.display = 'flex';
+            
+            // ★ タイマーを設定し、一定時間後に非表示にする (仮のロード完了)
+            clearTimeout(loadTimer);
+            loadTimer = setTimeout(() => {
+                loadMessage.style.display = 'none'; 
+            }, 3000); // 3秒間メッセージを表示
+            
         } else {
             yuzuPlayer.style.display = 'none';
             youtubePlayer.style.display = 'block';
@@ -149,6 +165,10 @@
             yuzuBtn.style.backgroundColor = 'var(--yt-bg)';
             youtubeBtn.style.backgroundColor = 'var(--yt-light-dark)';
             qualitySelector.style.display = 'none';
+            
+            // YouTube埋め込みに切り替えた際、ロードメッセージを非表示
+            clearTimeout(loadTimer);
+            loadMessage.style.display = 'none';
         }
     }
 
@@ -156,20 +176,60 @@
      * 新しいitagに基づいてストリームURLを更新し、iframeをリロードする関数
      */
     function changeQuality(itag, videoId) {
-        // Iframe要素を取得
         const streamIframe = document.getElementById('stream-iframe');
+        const loadMessage = document.getElementById('video-load-message');
         
         // 新しいURLを生成
         const newUrl = `https://pooo-eta.vercel.app/watch?v=${videoId}&itag=${itag}`;
         
         if (streamIframe) {
-            // src属性を更新することで、Iframeを再ロードし、新しい画質の動画を読み込ませる
-            // これにより、動画の再生が自動的に開始されるかどうかはIframe内のプレイヤーの実装に依存する
+            // ★ ロード開始時にメッセージを表示
+            loadMessage.innerHTML = '🔄 画質を変更中... ロードに時間がかかる場合があります。';
+            loadMessage.style.display = 'flex';
+            
+            // src属性を更新することで、Iframeを再ロード
             streamIframe.src = newUrl;
+            
+            // ★ タイマーを設定し、一定時間後に非表示にする
+            clearTimeout(loadTimer);
+            loadTimer = setTimeout(() => {
+                loadMessage.style.display = 'none'; 
+            }, 5000); // 5秒間メッセージを表示 (画質変更は時間がかかる可能性があるため長めに設定)
+
+            // ★ Iframeのonloadイベントを使って、ロード完了を待つ (ただし、動画の読み込み完了とは限らない)
+            streamIframe.onload = () => {
+                // タイマーをキャンセルし、メッセージを非表示にする
+                clearTimeout(loadTimer);
+                loadMessage.style.display = 'none';
+                streamIframe.onload = null; // イベントをクリア
+            };
         }
     }
     
-    // ページロード時にコメントを自動で読み込む
-    loadComments('{{ videoid }}');
+    // ページロード時の初期設定
+    document.addEventListener('DOMContentLoaded', () => {
+        const videoId = '{{ videoid }}';
+        loadComments(videoId);
+        
+        // 初回ロード時もメッセージを表示
+        const loadMessage = document.getElementById('video-load-message');
+        const streamIframe = document.getElementById('stream-iframe');
+        
+        loadMessage.innerHTML = '🔄 動画ストリームを読み込み中... 少しお待ちください。';
+        loadMessage.style.display = 'flex';
+        
+        // ★ Iframeのonloadイベントを設定 (初回ロード時)
+        streamIframe.onload = () => {
+            clearTimeout(loadTimer);
+            loadMessage.style.display = 'none';
+            streamIframe.onload = null; // イベントをクリア
+        };
+
+        // ★ フォールバックとして、3秒後に強制的に非表示にするタイマーを設定
+        loadTimer = setTimeout(() => {
+            loadMessage.style.display = 'none'; 
+            streamIframe.onload = null; // イベントをクリア
+        }, 3000); 
+    });
 </script>
 {% endblock %}
