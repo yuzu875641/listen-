@@ -3,8 +3,6 @@
 {% block title %}{{ video_title }} - yuzutube{% endblock %}
 
 {% block content %}
-<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
-
 <div class="watch-page-container">
     <div class="main-video-area">
         <div style="margin-bottom: 10px; display: flex; align-items: center; gap: 10px;">
@@ -21,6 +19,7 @@
                 <span style="color: var(--yt-text); margin-right: 5px;">画質:</span>
                 <select id="itag-select" onchange="changeQuality(this.value, '{{ videoid }}');" 
                         style="padding: 5px; border: 1px solid var(--yt-sub-text); background-color: var(--yt-light-dark); color: var(--yt-text); border-radius: 4px;">
+                    {# itagのオプションリスト。91をデフォルトとして選択 #}
                     <option value="96">1080p60 (96)</option>
                     <option value="95">1080p (95)</option>
                     <option value="301">1080p60 WebM (301)</option>
@@ -34,16 +33,19 @@
         </div>
 
         <div id="yuzutube-player" style="display: block; width: 100%; aspect-ratio: 16/9; background-color: black; position: relative; overflow: hidden; border-radius: 8px;">
+            {# 動画の読み込み失敗時のメッセージを扱うためのコンテナ #}
             <div id="video-load-message" style="color: white; display: flex; align-items: center; justify-content: center; height: 100%; font-size: 18px; position: absolute; top: 0; left: 0; width: 100%; z-index: 10; background-color: rgba(0, 0, 0, 0.8); display: none;">
                 🔄 **動画ストリームを読み込み中... 少しお待ちください。**
             </div>
             
-            <video id="stream-video" controls autoplay
+            {# Iframeを使用して動画ストリームURLを埋め込み、全画面を許可 #}
+            <iframe id="stream-iframe"
+                src="https://pooo-eta.vercel.app/watch?v={{ videoid }}&itag=91" 
+                frameborder="0"
+                allow="autoplay; fullscreen; picture-in-picture" 
+                allowfullscreen 
                 style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;">
-                <div style="color: white; display: flex; align-items: center; justify-content: center; height: 100%;">
-                    お使いのブラウザは動画形式をサポートしていません。
-                </div>
-            </video>
+            </iframe>
         </div>
 
         <div id="youtube-embed-player" style="display: none; width: 100%; aspect-ratio: 16/9; position: relative; overflow: hidden; border-radius: 8px;">
@@ -104,10 +106,11 @@
 </div>
 
 <script>
-    let loadTimer; // ロードメッセージのタイマー
-    let hls;       // hls.jsのインスタンスを保持
+    // グローバルなタイマーIDを保持
+    let loadTimer;
 
     function loadComments(videoId) {
+        // ... (コメントロード関数は変更なし) ...
         const commentList = document.getElementById('comment-list');
         commentList.innerHTML = '<div style="color: var(--yt-sub-text);">コメントを読み込み中...</div>';
         fetch(`/comments?v=${videoId}`)
@@ -127,86 +130,14 @@
     }
 
     /**
-     * hls.jsを使用して動画ストリームをロードする
-     * @param {string} url - M3U8ストリームURL
+     * 動画プレーヤーを切り替え、ボタンのスタイルを更新する関数
      */
-    function loadStream(url) {
-        const videoElement = document.getElementById('stream-video');
-        const loadMessage = document.getElementById('video-load-message');
-        
-        // メッセージをリセットし、表示
-        loadMessage.innerHTML = '🔄 **動画ストリームを読み込み中... 少しお待ちください。**';
-        loadMessage.style.display = 'flex';
-        
-        // 既存のhlsインスタンスがあれば破棄
-        if (hls) {
-            hls.destroy();
-        }
-
-        // 既存のロード状態をリセット
-        videoElement.removeAttribute('src'); 
-        videoElement.load();
-
-        // ロードタイマーをリセット
-        clearTimeout(loadTimer);
-        
-        // hls.jsがグローバルに利用可能か確認し、サポートされているかチェック
-        if (typeof Hls !== 'undefined' && Hls.isSupported()) {
-            hls = new Hls();
-            hls.attachMedia(videoElement);
-            hls.on(Hls.Events.MEDIA_ATTACHED, function () {
-                hls.loadSource(url);
-            });
-
-            // MANIFEST_PARSED（マニフェスト解析完了）を成功と見なす
-            hls.on(Hls.Events.MANIFEST_PARSED, function (event, data) {
-                clearTimeout(loadTimer);
-                loadMessage.style.display = 'none';
-                videoElement.play().catch(error => console.log("自動再生がブロックされました:", error));
-            });
-            
-            // HLSのエラーハンドリング
-            hls.on(Hls.Events.ERROR, function (event, data) {
-                 if (data.fatal) {
-                    console.error('HLS致命的エラー:', data);
-                    clearTimeout(loadTimer);
-                    loadMessage.innerHTML = '🚫 **ストリームの読み込みに失敗しました。** 画質を変更するか、YouTube埋め込みをお試しください。';
-                }
-            });
-
-        } else if (videoElement.canPlayType('application/vnd.apple.mpegurl')) {
-            // ネイティブHLS対応ブラウザ (iOS/Safari向け)
-            videoElement.src = url;
-            videoElement.load();
-            videoElement.addEventListener('loadedmetadata', function () {
-                clearTimeout(loadTimer);
-                loadMessage.style.display = 'none';
-                videoElement.play();
-            }, { once: true });
-            
-        } else {
-            // hls.jsが読み込まれていないか、全く対応していない場合
-            loadMessage.innerHTML = '🚫 **M3U8再生ライブラリの初期化に失敗しました。** YouTube埋め込みをお試しください。';
-            
-             // Chromeでダウンロードが起こらないよう、srcを直接設定しないでおく
-        }
-
-        // ロードが遅い場合のメッセージを更新するタイマー (5秒後にメッセージを更新)
-        loadTimer = setTimeout(() => {
-             if(loadMessage.style.display !== 'none') {
-                loadMessage.innerHTML = '⚠️ **読み込みに時間がかかっています...しばらくお待ちください。**';
-             }
-        }, 5000); 
-    }
-
     function showPlayer(playerId) {
-        // ... (省略: プレイヤー切り替えロジックは変更なし) ...
         const yuzuPlayer = document.getElementById('yuzutube-player');
         const youtubePlayer = document.getElementById('youtube-embed-player');
         const yuzuBtn = document.getElementById('yuzu-btn');
         const youtubeBtn = document.getElementById('youtube-btn');
         const qualitySelector = document.getElementById('quality-selector');
-        const videoElement = document.getElementById('stream-video'); 
         const loadMessage = document.getElementById('video-load-message');
 
         if (playerId === 'yuzutube-player') {
@@ -217,9 +148,15 @@
             youtubeBtn.style.backgroundColor = 'var(--yt-bg)';
             qualitySelector.style.display = 'block';
 
-            if (videoElement && videoElement.paused) {
-                 videoElement.play().catch(error => console.log("自動再生がブロックされました:", error));
-            }
+            // ★ プレイヤーに切り替えた際、すぐにロードメッセージを短時間表示
+            loadMessage.innerHTML = '🔄 **動画ストリームを読み込み中... 少しお待ちください。**';
+            loadMessage.style.display = 'flex';
+            
+            // ★ タイマーを設定し、一定時間後に非表示にする (仮のロード完了)
+            clearTimeout(loadTimer);
+            loadTimer = setTimeout(() => {
+                loadMessage.style.display = 'none'; 
+            }, 3000); // 3秒間メッセージを表示
             
         } else {
             yuzuPlayer.style.display = 'none';
@@ -228,21 +165,45 @@
             yuzuBtn.style.backgroundColor = 'var(--yt-bg)';
             youtubeBtn.style.backgroundColor = 'var(--yt-light-dark)';
             qualitySelector.style.display = 'none';
-
-            if (videoElement) {
-                videoElement.pause();
-            }
+            
+            // YouTube埋め込みに切り替えた際、ロードメッセージを非表示
             clearTimeout(loadTimer);
             loadMessage.style.display = 'none';
         }
     }
 
     /**
-     * 新しいitagに基づいてストリームURLを更新し、動画をリロードする関数
+     * 新しいitagに基づいてストリームURLを更新し、iframeをリロードする関数
      */
     function changeQuality(itag, videoId) {
+        const streamIframe = document.getElementById('stream-iframe');
+        const loadMessage = document.getElementById('video-load-message');
+        
+        // 新しいURLを生成
         const newUrl = `https://pooo-eta.vercel.app/watch?v=${videoId}&itag=${itag}`;
-        loadStream(newUrl); // hls.jsでストリームを再ロード
+        
+        if (streamIframe) {
+            // ★ ロード開始時にメッセージを表示
+            loadMessage.innerHTML = '🔄 **画質を変更中... ロードに時間がかかる場合があります。**';
+            loadMessage.style.display = 'flex';
+            
+            // src属性を更新することで、Iframeを再ロード
+            streamIframe.src = newUrl;
+            
+            // ★ タイマーを設定し、一定時間後に非表示にする
+            clearTimeout(loadTimer);
+            loadTimer = setTimeout(() => {
+                loadMessage.style.display = 'none'; 
+            }, 5000); // 5秒間メッセージを表示 (画質変更は時間がかかる可能性があるため長めに設定)
+
+            // ★ Iframeのonloadイベントを使って、ロード完了を待つ (ただし、動画の読み込み完了とは限らない)
+            streamIframe.onload = () => {
+                // タイマーをキャンセルし、メッセージを非表示にする
+                clearTimeout(loadTimer);
+                loadMessage.style.display = 'none';
+                streamIframe.onload = null; // イベントをクリア
+            };
+        }
     }
     
     // ページロード時の初期設定
@@ -250,11 +211,25 @@
         const videoId = '{{ videoid }}';
         loadComments(videoId);
         
-        // 初期選択されているitagを取得し、ストリームをロード
-        const defaultItag = document.getElementById('itag-select').value;
-        const defaultUrl = `https://pooo-eta.vercel.app/watch?v=${videoId}&itag=${defaultItag}`;
+        // 初回ロード時もメッセージを表示
+        const loadMessage = document.getElementById('video-load-message');
+        const streamIframe = document.getElementById('stream-iframe');
         
-        loadStream(defaultUrl);
+        loadMessage.innerHTML = '🔄 **動画ストリームを読み込み中... 少しお待ちください。**';
+        loadMessage.style.display = 'flex';
+        
+        // ★ Iframeのonloadイベントを設定 (初回ロード時)
+        streamIframe.onload = () => {
+            clearTimeout(loadTimer);
+            loadMessage.style.display = 'none';
+            streamIframe.onload = null; // イベントをクリア
+        };
+
+        // ★ フォールバックとして、3秒後に強制的に非表示にするタイマーを設定
+        loadTimer = setTimeout(() => {
+            loadMessage.style.display = 'none'; 
+            streamIframe.onload = null; // イベントをクリア
+        }, 3000); 
     });
 </script>
 {% endblock %}
