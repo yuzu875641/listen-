@@ -21,8 +21,8 @@ def isJSON(json_str):
     except json.JSONDecodeError: return False
 
 # Global Configuration
-max_time = 10.0
-max_api_wait_time = (3.0, 5.0)
+max_time = 20.0
+max_api_wait_time = (10.0, 5.0)
 failed = "Load Failed"
 
 invidious_api_data = {
