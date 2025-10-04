@@ -25,10 +25,6 @@ max_time = 10.0
 max_api_wait_time = (3.0, 5.0)
 failed = "Load Failed"
 
-# 緊急フォールバックAPIの定義 (ユーザー提供のAPI)
-FALLBACK_API = "https://siawaseok.f5.si/api/2/streams/"
-
-# Invidious API一覧
 invidious_api_data = {
     'video': [
         'https://yt.omada.cafe/',
@@ -69,6 +65,7 @@ invidious_api_data = {
 }
 
 class InvidiousAPI:
+    # 修正済み: selfself から self に変更
     def __init__(self):
         self.all = invidious_api_data
         self.video = list(self.all['video']); 
@@ -81,7 +78,7 @@ class InvidiousAPI:
 def requestAPI(path, api_urls):
     """
     Sequentially attempts API requests using the provided list of URLs.
-    Raises APITimeoutError if all APIs fail.
+    Fails over to the next URL on connection error or non-OK response.
     """
     starttime = time.time()
     
@@ -100,18 +97,11 @@ def requestAPI(path, api_urls):
         except requests.exceptions.RequestException:
             continue
             
-    # 全API失敗時はエラーを投げる
     raise APITimeoutError("All available API instances failed to respond.")
 
 def formatSearchData(data_dict, failed="Load Failed"):
     if data_dict["type"] == "video": 
-        return {"type": "video", 
-                "title": data_dict.get("title", failed), 
-                "id": data_dict.get("videoId", failed), 
-                "author": data_dict.get("author", failed), 
-                "published": data_dict.get("publishedText", failed), 
-                "length": str(datetime.timedelta(seconds=data_dict.get("lengthSeconds", 0))), 
-                "view_count_text": data_dict.get("viewCountText", failed)}
+        return {"type": "video", "title": data_dict.get("title", failed), "id": data_dict.get("videoId", failed), "author": data_dict.get("author", failed), "published": data_dict.get("publishedText", failed), "length": str(datetime.timedelta(seconds=data_dict.get("lengthSeconds", 0))), "view_count_text": data_dict.get("viewCountText", failed)}
     elif data_dict["type"] == "playlist": 
         return {"type": "playlist", "title": data_dict.get("title", failed), "id": data_dict.get('playlistId', failed), "thumbnail": data_dict.get("playlistThumbnail", failed), "count": data_dict.get("videoCount", failed)}
     elif data_dict["type"] == "channel":
@@ -120,80 +110,14 @@ def formatSearchData(data_dict, failed="Load Failed"):
         return {"type": "channel", "author": data_dict.get("author", failed), "id": data_dict.get("authorId", failed), "thumbnail": thumbnail}
     return {"type": "unknown", "data": data_dict}
 
-def get_fallback_video_data(videoid):
-    """
-    緊急APIからタイトルと再生可能なMP4動画URLを取得する。
-    優先順位: itag=96 -> itag=18 -> 最初のmp4フォーマット
-    """
-    try:
-        res = requests.get(FALLBACK_API + videoid, headers=getRandomUserAgent(), timeout=max_api_wait_time)
-        
-        if res.status_code != requests.codes.ok or not isJSON(res.text):
-            return "タイトル不明", None
-
-        data = res.json()
-        title = data.get("title", "タイトル不明")
-        formats = data.get("formats", [])
-        
-        # 1. ユーザー指定のitag=96を最優先で探す
-        target_itag_96_url = next((fmt.get("url") for fmt in formats if str(fmt.get("itag")) == "96"), None)
-        if target_itag_96_url:
-            print(f"Fallback: Found itag 96 URL for {videoid}")
-            return title, target_itag_96_url
-
-        # 2. 標準的なitag=18を探す
-        target_itag_18_url = next((fmt.get("url") for fmt in formats if str(fmt.get("itag")) == "18"), None)
-        if target_itag_18_url:
-            print(f"Fallback: Found itag 18 URL for {videoid}")
-            return title, target_itag_18_url
-            
-        # 3. それ以外の有効なMP4動画URLを探す
-        generic_mp4_url = next((
-            fmt.get("url") for fmt in formats 
-            if fmt.get("ext") == "mp4" and "video" in fmt.get("mimeType", "") and fmt.get("url")
-        ), None)
-
-        if generic_mp4_url:
-            print(f"Fallback: Found generic MP4 URL for {videoid}")
-            return title, generic_mp4_url
-
-        print(f"Fallback: No suitable MP4 URL found for {videoid}")
-        return title, None
-        
-    except requests.exceptions.RequestException as e:
-        print(f"Fallback API error for {videoid}: {e}")
-        return "タイトル不明", None
-
 async def getVideoData(videoid):
-    failed = "Load Failed"
-    
-    # requestAPIは失敗した場合APITimeoutErrorをraiseする
     t_text = await run_in_threadpool(requestAPI, f"/videos/{urllib.parse.quote(videoid)}", invidious_api.video)
     t = json.loads(t_text)
-
-    video_urls = []
-    
-    # Invidiousが通常のストリームURLを返している場合、それを採用
-    if t.get("formatStreams"):
-        # URLをリストの先頭2つに限定 (帯域節約のため)
-        video_urls = list(reversed([i["url"] for i in t["formatStreams"]]))[:2]
-    
-    length_text = str(datetime.timedelta(seconds=t.get("lengthSeconds", 0)))
-    view_count = t.get("viewCount", failed)
-        
     recommended_videos = t.get('recommendedvideo') or t.get('recommendedVideos') or []
-    
     return [{
-        'video_urls': video_urls,
-        'description_html': t.get("descriptionHtml", failed).replace("\n", "<br>"), 
-        'title': t.get("title", failed),
-        'length_text': length_text, 
-        'author_id': t.get("authorId", failed), 
-        'author': t.get("author", failed), 
-        'author_thumbnails_url': t.get("authorThumbnails", [{}])[-1].get("url", failed), 
-        'view_count': view_count, 
-        'like_count': t.get("likeCount", failed), 
-        'subscribers_count': t.get("subCountText", failed)
+        'video_urls': list(reversed([i["url"] for i in t["formatStreams"]]))[:2],
+        'description_html': t["descriptionHtml"].replace("\n", "<br>"), 'title': t["title"],
+        'length_text': str(datetime.timedelta(seconds=t["lengthSeconds"])), 'author_id': t["authorId"], 'author': t["author"], 'author_thumbnails_url': t["authorThumbnails"][-1]["url"], 'view_count': t["viewCount"], 'like_count': t["likeCount"], 'subscribers_count': t["subCountText"]
     }, [
         {"video_id": i["videoId"], "title": i["title"], "author_id": i["authorId"], "author": i["author"], "length_text": str(datetime.timedelta(seconds=i["lengthSeconds"])), "view_count_text": i["viewCountText"]}
         for i in recommended_videos
@@ -252,65 +176,11 @@ async def home(request: Request, proxy: Union[str] = Cookie(None)):
         "proxy": proxy
     })
 
-# /watch ルート (プライマリ再生ルート)
 @app.get('/watch', response_class=HTMLResponse)
 async def video(v:str, request: Request, proxy: Union[str] = Cookie(None)):
-    try:
-        # Invidious APIからデータを取得。失敗した場合はAPITimeoutErrorをraise
-        video_data = await getVideoData(v)
-        return templates.TemplateResponse('video.html', {
-            "request": request, "videoid": v, "videourls": video_data[0]['video_urls'], "description": video_data[0]['description_html'], "video_title": video_data[0]['title'], "author_id": video_data[0]['author_id'], "author_icon": video_data[0]['author_thumbnails_url'], "author": video_data[0]['author'], "length_text": video_data[0]['length_text'], "view_count": video_data[0]['view_count'], "like_count": video_data[0]['like_count'], "subscribers_count": video_data[0]['subscribers_count'], "recommended_videos": video_data[1], "proxy":proxy
-        })
-    except APITimeoutError:
-        # Invidious API失敗時はエラーメッセージと緊急再生ルートへのリンクを提示
-        error_html = f"""
-        <html>
-        <head>
-            <title>APIエラー</title>
-            <style>
-                body {{ background-color:#0f0f0f; color:white; font-family: 'Inter', sans-serif; padding: 20px; text-align: center; }}
-                h1 {{ color: #FF0000; margin-bottom: 10px; }}
-                p {{ margin-bottom: 20px; }}
-                a {{ 
-                    color: white; 
-                    background-color: #FF0000;
-                    font-size: 1.2em; 
-                    text-decoration: none; 
-                    border: none;
-                    padding: 12px 20px; 
-                    border-radius: 8px; 
-                    display: inline-block;
-                    transition: background-color 0.3s;
-                }}
-                a:hover {{ background-color: #CC0000; }}
-            </style>
-        </head>
-        <body>
-            <h1>動画情報の取得に失敗しました😭</h1>
-            <p>全てのInvidious APIインスタンスが応答しませんでした。</p>
-            <p>お手数ですが、緊急フォールバック再生を試してください。</p>
-            <p style="margin-top: 30px;">
-                <a href='/w?v={v}'>
-                    緊急再生 ( /w?v={v} ) を試す
-                </a>
-            </p>
-        </body>
-        </html>
-        """
-        return HTMLResponse(content=error_html, status_code=503)
-
-# /w ルート (緊急フォールバック再生ルート)
-@app.get('/w', response_class=HTMLResponse)
-async def sub_video(v:str, request: Request):
-    # 緊急フォールバックAPIを試行 (ブロッキング処理)
-    # itag=96 -> itag=18 -> 最初のmp4の優先順位でURLを取得
-    title, url = await run_in_threadpool(get_fallback_video_data, v)
-    
-    # subvideo.htmlをレンダリング
-    return templates.TemplateResponse('subvideo.html', {
-        "request": request, 
-        "title": title or "タイトル不明", 
-        "url": url,
+    video_data = await getVideoData(v)
+    return templates.TemplateResponse('video.html', {
+        "request": request, "videoid": v, "videourls": video_data[0]['video_urls'], "description": video_data[0]['description_html'], "video_title": video_data[0]['title'], "author_id": video_data[0]['author_id'], "author_icon": video_data[0]['author_thumbnails_url'], "author": video_data[0]['author'], "length_text": video_data[0]['length_text'], "view_count": video_data[0]['view_count'], "like_count": video_data[0]['like_count'], "subscribers_count": video_data[0]['subscribers_count'], "recommended_videos": video_data[1], "proxy":proxy
     })
 
 @app.get("/search", response_class=HTMLResponse)
@@ -325,7 +195,7 @@ async def hashtag_search(tag:str):
 @app.get("/channel/{channelid}", response_class=HTMLResponse)
 async def channel(channelid:str, request: Request, proxy: Union[str] = Cookie(None)):
     t = await getChannelData(channelid)
-    return templates.TemplateResponse("channel.html", {"request": request, "results": t[0], "channel_name": t[1]["channel_name"], "channel_icon": t[1]["channel_icon"], "channel_profile": t[1]["descriptionHtml"], "cover_img_url": t[1]["author_banner"], "subscribers_count": t[1]["subscribers_count"], "proxy": proxy})
+    return templates.TemplateResponse("channel.html", {"request": request, "results": t[0], "channel_name": t[1]["channel_name"], "channel_icon": t[1]["channel_icon"], "channel_profile": t[1]["channel_profile"], "cover_img_url": t[1]["author_banner"], "subscribers_count": t[1]["subscribers_count"], "proxy": proxy})
 
 @app.get("/playlist", response_class=HTMLResponse)
 async def playlist(list_id:str, request: Request, page:Union[int, None]=1, proxy: Union[str] = Cookie(None)):
