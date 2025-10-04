@@ -177,10 +177,31 @@ async def home(request: Request, proxy: Union[str] = Cookie(None)):
     })
 
 @app.get('/watch', response_class=HTMLResponse)
-async def video(v:str, request: Request, proxy: Union[str] = Cookie(None)):
+async def video(v:str, request: Request, proxy: Union[str] = Cookie(None), stream_player: Union[str] = Cookie(None)):
     video_data = await getVideoData(v)
+    
+    # Player Mode Logic (based on stream_player cookie from video.html JS)
+    streamurl_enabled = (stream_player == 'true')
+    # Assuming 'nocookie_enabled' is True by default or managed by another setting
+    nocookie_enabled = True 
+    
     return templates.TemplateResponse('video.html', {
-        "request": request, "videoid": v, "videourls": video_data[0]['video_urls'], "description": video_data[0]['description_html'], "video_title": video_data[0]['title'], "author_id": video_data[0]['author_id'], "author_icon": video_data[0]['author_thumbnails_url'], "author": video_data[0]['author'], "length_text": video_data[0]['length_text'], "view_count": video_data[0]['view_count'], "like_count": video_data[0]['like_count'], "subscribers_count": video_data[0]['subscribers_count'], "recommended_videos": video_data[1], "proxy":proxy
+        "request": request, 
+        "videoid": v, 
+        "videourls": video_data[0]['video_urls'], 
+        "description": video_data[0]['description_html'], 
+        "video_title": video_data[0]['title'], 
+        "author_id": video_data[0]['author_id'], 
+        "author_icon": video_data[0]['author_thumbnails_url'], 
+        "author": video_data[0]['author'], 
+        "length_text": video_data[0]['length_text'], 
+        "view_count": video_data[0]['view_count'], 
+        "like_count": video_data[0]['like_count'], 
+        "subscribers_count": video_data[0]['subscribers_count'], 
+        "recommended_videos": video_data[1], 
+        "proxy":proxy,
+        "streamurl_enabled": streamurl_enabled, # Passed to template
+        "nocookie_enabled": nocookie_enabled    # Passed to template
     })
 
 @app.get("/search", response_class=HTMLResponse)
@@ -215,7 +236,7 @@ def thumbnail(v:str):
 def suggest(keyword:str):
     res_text = requests.get("http://www.google.com/complete/search?client=youtube&hl=ja&ds=yt&q=" + urllib.parse.quote(keyword), headers=getRandomUserAgent()).text
     return [i[0] for i in json.loads(res_text[19:-1])[1]]
-    
+
 @app.get("/setting", response_class=HTMLResponse)
 async def setting(request: Request, proxy: Union[str] = Cookie(None)):
     return templates.TemplateResponse("setting.html", {
