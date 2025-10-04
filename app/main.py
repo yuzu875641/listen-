@@ -98,30 +98,43 @@ def requestAPI(path, api_urls):
             
     raise APITimeoutError("All available API instances failed to respond.")
 
-# --- CUSTOM API FUNCTION ---
+# --- fetch_custom_stream_url MODIFIED ---
 def fetch_custom_stream_url(videoid):
     """
-    Fetches the stream URL from the custom siawaseok.f5.si API.
+    Fetches the stream URL from the custom siawaseok.f5.si API,
+    specifically looking for the format with itag '93'.
     """
     url = f"https://siawaseok.f5.si/api/2/streams/{urllib.parse.quote(videoid)}"
+    TARGET_ITAG = "93" # ユーザーの要望により、itag '93'をターゲットとする
+    
     try:
         res = requests.get(url, headers=getRandomUserAgent(), timeout=max_api_wait_time)
-        res.raise_for_status() # 4xx/5xxエラーを発生させる
+        res.raise_for_status() # HTTPエラーが発生した場合に例外を発生させる
         
         if isJSON(res.text):
             data = res.json()
-            # JSONレスポンスの 'url' キーからストリームURLを抽出
-            return data.get("url")
-        else:
-            print(f"Custom stream API returned non-JSON response for {videoid}")
+            
+            # ユーザーの提供したコードロジックを実装: formatsリスト内のitag '93'を探す
+            if 'formats' in data and isinstance(data.get('formats'), list):
+                for format_item in data['formats']:
+                    # itagがターゲットと一致し、urlキーが存在するか確認
+                    if str(format_item.get('itag', '')) == TARGET_ITAG and 'url' in format_item:
+                        print(f"Custom API: Found URL for itag '{TARGET_ITAG}'")
+                        return format_item['url']
+            
+            print(f"Custom API: itag '{TARGET_ITAG}' の URL は見つかりませんでした。")
             return None
+        else:
+            print(f"Custom API returned non-JSON response for {videoid}.")
+            return None
+            
     except requests.exceptions.RequestException as e:
         print(f"Error fetching custom stream URL for {videoid}: {e}")
         return None
     except Exception as e:
         print(f"An unexpected error occurred while fetching custom stream URL for {videoid}: {e}")
         return None
-# --- CUSTOM API FUNCTION END ---
+# --- fetch_custom_stream_url MODIFIED END ---
 
 def formatSearchData(data_dict, failed="Load Failed"):
     if data_dict["type"] == "video": 
@@ -134,7 +147,6 @@ def formatSearchData(data_dict, failed="Load Failed"):
         return {"type": "channel", "author": data_dict.get("author", failed), "id": data_dict.get("authorId", failed), "thumbnail": thumbnail}
     return {"type": "unknown", "data": data_dict}
 
-# --- getVideoData MODIFIED ---
 async def getVideoData(videoid):
     # Invidious APIから動画メタデータを取得
     t_text = await run_in_threadpool(requestAPI, f"/videos/{urllib.parse.quote(videoid)}", invidious_api.video)
@@ -156,14 +168,13 @@ async def getVideoData(videoid):
     recommended_videos = t.get('recommendedvideo') or t.get('recommendedVideos') or []
     
     return [{
-        'video_urls': video_urls_list, # <--- 修正箇所
+        'video_urls': video_urls_list,
         'description_html': t["descriptionHtml"].replace("\n", "<br>"), 'title': t["title"],
         'length_text': str(datetime.timedelta(seconds=t["lengthSeconds"])), 'author_id': t["authorId"], 'author': t["author"], 'author_thumbnails_url': t["authorThumbnails"][-1]["url"], 'view_count': t["viewCount"], 'like_count': t["likeCount"], 'subscribers_count': t["subCountText"]
     }, [
         {"video_id": i["videoId"], "title": i["title"], "author_id": i["authorId"], "author": i["author"], "length_text": str(datetime.timedelta(seconds=i["lengthSeconds"])), "view_count_text": i["viewCountText"]}
         for i in recommended_videos
     ]]
-# --- getVideoData MODIFIED END ---
     
 async def getSearchData(q, page):
     datas_text = await run_in_threadpool(requestAPI, f"/search?q={urllib.parse.quote(q)}&page={page}&hl=jp", invidious_api.search)
