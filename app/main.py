@@ -5,14 +5,16 @@ import datetime
 import urllib.parse
 from pathlib import Path 
 from typing import Union
-from fastapi import FastAPI, Response, Request, Cookie
+from fastapi import FastAPI, Response, Request, Cookie, Form # Form imported here
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-templates = Jinja2Templates(directory=str(BASE_DIR / "templates")) 
+# Note: Jinja2Templates directory depends on how the host environment mounts templates and static files.
+# Assuming 'templates' is a sibling of the directory containing main.py for this structure.
+templates = Jinja2Templates(directory=str(BASE_DIR.parent / "templates")) 
 
 class APITimeoutError(Exception): pass
 def getRandomUserAgent(): return {'User-Agent': 'Mozilla/50 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/94.0.4606.61 Safari/537.36'}
@@ -25,6 +27,7 @@ max_time = 10.0
 max_api_wait_time = (3.0, 5.0)
 failed = "Load Failed"
 
+# Invidious API List (Used for failover)
 invidious_api_data = {
     'video': [
         'https://yt.omada.cafe/',
@@ -65,7 +68,6 @@ invidious_api_data = {
 }
 
 class InvidiousAPI:
-    # 修正済み: selfself から self に変更
     def __init__(self):
         self.all = invidious_api_data
         self.video = list(self.all['video']); 
@@ -162,9 +164,10 @@ async def getCommentsData(videoid):
 app = FastAPI()
 invidious_api = InvidiousAPI() 
 
+# Note: Adjusting the StaticFiles directory path based on common project structure
 app.mount(
     "/static", 
-    StaticFiles(directory=str(BASE_DIR / "static")), 
+    StaticFiles(directory=str(BASE_DIR.parent / "static")), 
     name="static"
 )
 
@@ -177,10 +180,33 @@ async def home(request: Request, proxy: Union[str] = Cookie(None)):
     })
 
 @app.get('/watch', response_class=HTMLResponse)
-async def video(v:str, request: Request, proxy: Union[str] = Cookie(None)):
+async def video(
+    v:str, 
+    request: Request, 
+    proxy: Union[str] = Cookie(None),
+    # 新しい設定クッキーを読み込む
+    streamurl_enabled: Union[str] = Cookie(None),
+    nocookie_enabled: Union[str] = Cookie(None)
+):
     video_data = await getVideoData(v)
     return templates.TemplateResponse('video.html', {
-        "request": request, "videoid": v, "videourls": video_data[0]['video_urls'], "description": video_data[0]['description_html'], "video_title": video_data[0]['title'], "author_id": video_data[0]['author_id'], "author_icon": video_data[0]['author_thumbnails_url'], "author": video_data[0]['author'], "length_text": video_data[0]['length_text'], "view_count": video_data[0]['view_count'], "like_count": video_data[0]['like_count'], "subscribers_count": video_data[0]['subscribers_count'], "recommended_videos": video_data[1], "proxy":proxy
+        "request": request, 
+        "videoid": v, 
+        "videourls": video_data[0]['video_urls'], 
+        "description": video_data[0]['description_html'], 
+        "video_title": video_data[0]['title'], 
+        "author_id": video_data[0]['author_id'], 
+        "author_icon": video_data[0]['author_thumbnails_url'], 
+        "author": video_data[0]['author'], 
+        "length_text": video_data[0]['length_text'], 
+        "view_count": video_data[0]['view_count'], 
+        "like_count": video_data[0]['like_count'], 
+        "subscribers_count": video_data[0]['subscribers_count'], 
+        "recommended_videos": video_data[1], 
+        "proxy":proxy,
+        # クッキーの値をブール値としてテンプレートに渡す
+        "streamurl_enabled": streamurl_enabled == 'true',
+        "nocookie_enabled": nocookie_enabled == 'true',
     })
 
 @app.get("/search", response_class=HTMLResponse)
@@ -215,3 +241,39 @@ def thumbnail(v:str):
 def suggest(keyword:str):
     res_text = requests.get("http://www.google.com/complete/search?client=youtube&hl=ja&ds=yt&q=" + urllib.parse.quote(keyword), headers=getRandomUserAgent()).text
     return [i[0] for i in json.loads(res_text[19:-1])[1]]
+
+@app.get('/setting', response_class=HTMLResponse)
+async def setting_page(
+    request: Request, 
+    streamurl_enabled: Union[str] = Cookie(None),
+    nocookie_enabled: Union[str] = Cookie(None)
+):
+    """視聴設定ページを表示するルート"""
+    # クッキー値をブール値に変換
+    is_streamurl = streamurl_enabled == 'true'
+    is_nocookie = nocookie_enabled == 'true'
+    
+    return templates.TemplateResponse("setting.html", {
+        "request": request,
+        "streamurl_enabled": is_streamurl,
+        "nocookie_enabled": is_nocookie
+    })
+
+@app.post("/setting")
+async def save_settings(
+    streamurl_enabled: Union[str, None] = Form(None),
+    nocookie_enabled: Union[str, None] = Form(None),
+):
+    """視聴設定を保存し、クッキーを設定するルート"""
+    # 303 See Otherで/settingにリダイレクトするレスポンスを作成
+    response = RedirectResponse("/setting", status_code=303)
+    
+    # 'streamurl_enabled' クッキーを設定 (チェックボックスがオンなら 'true', オフなら 'false')
+    stream_value = "true" if streamurl_enabled == 'on' else "false"
+    response.set_cookie(key="streamurl_enabled", value=stream_value, max_age=3600*24*365, httponly=True)
+
+    # 'nocookie_enabled' クッキーを設定
+    nocookie_value = "true" if nocookie_enabled == 'on' else "false"
+    response.set_cookie(key="nocookie_enabled", value=nocookie_value, max_age=3600*24*365, httponly=True)
+
+    return response
