@@ -98,26 +98,24 @@ def requestAPI(path, api_urls):
             
     raise APITimeoutError("All available API instances failed to respond.")
 
-# --- fetch_custom_stream_url MODIFIED ---
 def fetch_custom_stream_url(videoid):
     """
     Fetches the stream URL from the custom siawaseok.f5.si API,
     specifically looking for the format with itag '93'.
     """
     url = f"https://siawaseok.f5.si/api/2/streams/{urllib.parse.quote(videoid)}"
-    TARGET_ITAG = "93" # ユーザーの要望により、itag '93'をターゲットとする
+    TARGET_ITAG = "93"
     
     try:
         res = requests.get(url, headers=getRandomUserAgent(), timeout=max_api_wait_time)
-        res.raise_for_status() # HTTPエラーが発生した場合に例外を発生させる
+        res.raise_for_status()
         
         if isJSON(res.text):
             data = res.json()
             
-            # ユーザーの提供したコードロジックを実装: formatsリスト内のitag '93'を探す
+            # formatsリスト内のitag '93'を探し、対応するURLを返す
             if 'formats' in data and isinstance(data.get('formats'), list):
                 for format_item in data['formats']:
-                    # itagがターゲットと一致し、urlキーが存在するか確認
                     if str(format_item.get('itag', '')) == TARGET_ITAG and 'url' in format_item:
                         print(f"Custom API: Found URL for itag '{TARGET_ITAG}'")
                         return format_item['url']
@@ -134,7 +132,6 @@ def fetch_custom_stream_url(videoid):
     except Exception as e:
         print(f"An unexpected error occurred while fetching custom stream URL for {videoid}: {e}")
         return None
-# --- fetch_custom_stream_url MODIFIED END ---
 
 def formatSearchData(data_dict, failed="Load Failed"):
     if data_dict["type"] == "video": 
@@ -148,27 +145,25 @@ def formatSearchData(data_dict, failed="Load Failed"):
     return {"type": "unknown", "data": data_dict}
 
 async def getVideoData(videoid):
-    # Invidious APIから動画メタデータを取得
     t_text = await run_in_threadpool(requestAPI, f"/videos/{urllib.parse.quote(videoid)}", invidious_api.video)
     t = json.loads(t_text)
     
-    # カスタムAPIからストリームURLを取得
+    # ★ カスタムAPIからストリームURLを取得 ★
     custom_stream_url = await run_in_threadpool(fetch_custom_stream_url, videoid)
     
-    # video_urlsのリストを構築
     video_urls_list = []
     if custom_stream_url:
-        # カスタムURLが存在すればそれを使用 (リストとして格納)
+        # カスタムURLが存在すればそれを使用
         video_urls_list = [custom_stream_url]
     else:
-        # カスタムAPIからの取得に失敗した場合、Invidiousの既存ロジックにフォールバック
+        # 失敗した場合、Invidiousの既存ロジックにフォールバック
         print(f"Falling back to Invidious streams for video {videoid}.")
         video_urls_list = list(reversed([i["url"] for i in t.get("formatStreams", []) if i.get("url")]))[:2]
 
     recommended_videos = t.get('recommendedvideo') or t.get('recommendedVideos') or []
     
     return [{
-        'video_urls': video_urls_list,
+        'video_urls': video_urls_list, # ★ ここで取得したURLリストがテンプレートに渡される ★
         'description_html': t["descriptionHtml"].replace("\n", "<br>"), 'title': t["title"],
         'length_text': str(datetime.timedelta(seconds=t["lengthSeconds"])), 'author_id': t["authorId"], 'author': t["author"], 'author_thumbnails_url': t["authorThumbnails"][-1]["url"], 'view_count': t["viewCount"], 'like_count': t["likeCount"], 'subscribers_count': t["subCountText"]
     }, [
@@ -231,6 +226,7 @@ async def home(request: Request, proxy: Union[str] = Cookie(None)):
 
 @app.get('/watch', response_class=HTMLResponse)
 async def video(v:str, request: Request, proxy: Union[str] = Cookie(None)):
+    # ★ getVideoDataがカスタムAPIのURLを取得して返します ★
     video_data = await getVideoData(v)
     return templates.TemplateResponse('video.html', {
         "request": request, "videoid": v, "videourls": video_data[0]['video_urls'], "description": video_data[0]['description_html'], "video_title": video_data[0]['title'], "author_id": video_data[0]['author_id'], "author_icon": video_data[0]['author_thumbnails_url'], "author": video_data[0]['author'], "length_text": video_data[0]['length_text'], "view_count": video_data[0]['view_count'], "like_count": video_data[0]['like_count'], "subscribers_count": video_data[0]['subscribers_count'], "recommended_videos": video_data[1], "proxy":proxy
