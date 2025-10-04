@@ -21,8 +21,8 @@ def isJSON(json_str):
     except json.JSONDecodeError: return False
 
 # Global Configuration
-max_time = 20.0
-max_api_wait_time = (3.0, 7.0)
+max_time = 10.0
+max_api_wait_time = (3.0, 5.0)
 failed = "Load Failed"
 
 invidious_api_data = {
@@ -98,42 +98,6 @@ def requestAPI(path, api_urls):
             
     raise APITimeoutError("All available API instances failed to respond.")
 
-def fetch_custom_stream_url(videoid):
-    """
-    Fetches the stream URL from the custom siawaseok.f5.si API,
-    specifically looking for the format with itag '95' (HLS stream).
-    """
-    url = f"https://siawaseok.f5.si/api/2/streams/{urllib.parse.quote(videoid)}"
-    # itagを '93' から '95' に変更
-    TARGET_ITAG = "95"
-    
-    try:
-        res = requests.get(url, headers=getRandomUserAgent(), timeout=max_api_wait_time)
-        res.raise_for_status()
-        
-        if isJSON(res.text):
-            data = res.json()
-            
-            # formatsリスト内のitag '95'を探し、対応するURLを返す
-            if 'formats' in data and isinstance(data.get('formats'), list):
-                for format_item in data['formats']:
-                    if str(format_item.get('itag', '')) == TARGET_ITAG and 'url' in format_item:
-                        print(f"Custom API: Found URL for itag '{TARGET_ITAG}'")
-                        return format_item['url']
-            
-            print(f"Custom API: itag '{TARGET_ITAG}' の URL は見つかりませんでした。Invidiousにフォールバックします。")
-            return None
-        else:
-            print(f"Custom API returned non-JSON response for {videoid}.")
-            return None
-            
-    except requests.exceptions.RequestException as e:
-        print(f"Error fetching custom stream URL for {videoid}: {e}")
-        return None
-    except Exception as e:
-        print(f"An unexpected error occurred while fetching custom stream URL for {videoid}: {e}")
-        return None
-
 def formatSearchData(data_dict, failed="Load Failed"):
     if data_dict["type"] == "video": 
         return {"type": "video", "title": data_dict.get("title", failed), "id": data_dict.get("videoId", failed), "author": data_dict.get("author", failed), "published": data_dict.get("publishedText", failed), "length": str(datetime.timedelta(seconds=data_dict.get("lengthSeconds", 0))), "view_count_text": data_dict.get("viewCountText", failed)}
@@ -145,33 +109,21 @@ def formatSearchData(data_dict, failed="Load Failed"):
         return {"type": "channel", "author": data_dict.get("author", failed), "id": data_dict.get("authorId", failed), "thumbnail": thumbnail}
     return {"type": "unknown", "data": data_dict}
 
+# ========== MODIFIED/CLEANED FUNCTION ==========
 async def getVideoData(videoid):
     t_text = await run_in_threadpool(requestAPI, f"/videos/{urllib.parse.quote(videoid)}", invidious_api.video)
     t = json.loads(t_text)
-    
-    # カスタムAPIからストリームURLを取得
-    custom_stream_url = await run_in_threadpool(fetch_custom_stream_url, videoid)
-    
-    video_urls_list = []
-    if custom_stream_url:
-        # カスタムURLが存在すればそれを使用
-        video_urls_list = [custom_stream_url]
-    else:
-        # 失敗した場合、Invidiousの既存ロジックにフォールバック
-        print(f"Falling back to Invidious streams for video {videoid}.")
-        video_urls_list = list(reversed([i["url"] for i in t.get("formatStreams", []) if i.get("url")]))[:2]
-
     recommended_videos = t.get('recommendedvideo') or t.get('recommendedVideos') or []
-    
+    # NOTE: 'video_urls' is removed from this dictionary as it is now fetched by getPrimaryStreamUrl
     return [{
-        'video_urls': video_urls_list,
         'description_html': t["descriptionHtml"].replace("\n", "<br>"), 'title': t["title"],
         'length_text': str(datetime.timedelta(seconds=t["lengthSeconds"])), 'author_id': t["authorId"], 'author': t["author"], 'author_thumbnails_url': t["authorThumbnails"][-1]["url"], 'view_count': t["viewCount"], 'like_count': t["likeCount"], 'subscribers_count': t["subCountText"]
     }, [
         {"video_id": i["videoId"], "title": i["title"], "author_id": i["authorId"], "author": i["author"], "length_text": str(datetime.timedelta(seconds=i["lengthSeconds"])), "view_count_text": i["viewCountText"]}
         for i in recommended_videos
     ]]
-    
+# ===============================================
+
 async def getSearchData(q, page):
     datas_text = await run_in_threadpool(requestAPI, f"/search?q={urllib.parse.quote(q)}&page={page}&hl=jp", invidious_api.search)
     datas_dict = json.loads(datas_text)
@@ -207,6 +159,40 @@ async def getCommentsData(videoid):
     return [{"author": i["author"], "authoricon": i["authorThumbnails"][-1]["url"], "authorid": i["authorId"], "body": i["contentHtml"].replace("\n", "<br>")} for i in t]
 
 
+# ========== NEW FUNCTION ADDED ==========
+async def getPrimaryStreamUrl(videoid):
+    """
+    Fetches the primary video stream URL from the user-specified external API (siawaseok.f5.si).
+    """
+    api_url = f"https://siawaseok.f5.si/api/2/streams/{urllib.parse.quote(videoid)}"
+    
+    def fetch_stream_url_sync():
+        try:
+            res = requests.get(api_url, headers=getRandomUserAgent(), timeout=max_api_wait_time)
+            
+            if res.status_code == requests.codes.ok and isJSON(res.text):
+                data = json.loads(res.text)
+                
+                # Check if data is a list and take the first element's url, 
+                # or if it's a dict, take its url.
+                if isinstance(data, list) and data:
+                    return data[0].get("url")
+                elif isinstance(data, dict):
+                    return data.get("url")
+            
+        except requests.exceptions.RequestException:
+            pass # Continue to return None/failed URL on request failure
+            
+        return None # Return None on failure to distinguish from successful fetch
+
+    # Run the synchronous fetch in a thread pool
+    result_url = await run_in_threadpool(fetch_stream_url_sync)
+    
+    # Return the result_url or the failed string
+    return result_url if result_url else failed 
+# ========================================
+
+
 # FastAPI Application
 app = FastAPI()
 invidious_api = InvidiousAPI() 
@@ -225,12 +211,32 @@ async def home(request: Request, proxy: Union[str] = Cookie(None)):
         "proxy": proxy
     })
 
+# ========== MODIFIED ROUTE ==========
 @app.get('/watch', response_class=HTMLResponse)
 async def video(v:str, request: Request, proxy: Union[str] = Cookie(None)):
+    # 1. Fetch the primary video stream URL from the new external API
+    primary_stream_url = await getPrimaryStreamUrl(v)
+    
+    # 2. Fetch the metadata (title, description, recommended videos, etc.) from Invidious
     video_data = await getVideoData(v)
+    
     return templates.TemplateResponse('video.html', {
-        "request": request, "videoid": v, "videourls": video_data[0]['video_urls'], "description": video_data[0]['description_html'], "video_title": video_data[0]['title'], "author_id": video_data[0]['author_id'], "author_icon": video_data[0]['author_thumbnails_url'], "author": video_data[0]['author'], "length_text": video_data[0]['length_text'], "view_count": video_data[0]['view_count'], "like_count": video_data[0]['like_count'], "subscribers_count": video_data[0]['subscribers_count'], "recommended_videos": video_data[1], "proxy":proxy
+        "request": request, 
+        "videoid": v, 
+        "videourls": [primary_stream_url], # MODIFIED: Using the new primary stream URL as a list
+        "description": video_data[0]['description_html'], 
+        "video_title": video_data[0]['title'], 
+        "author_id": video_data[0]['author_id'], 
+        "author_icon": video_data[0]['author_thumbnails_url'], 
+        "author": video_data[0]['author'], 
+        "length_text": video_data[0]['length_text'], 
+        "view_count": video_data[0]['view_count'], 
+        "like_count": video_data[0]['like_count'], 
+        "subscribers_count": video_data[0]['subscribers_count'], 
+        "recommended_videos": video_data[1], 
+        "proxy":proxy
     })
+# ====================================
 
 @app.get("/search", response_class=HTMLResponse)
 async def search(q:str, request: Request, page:Union[int, None]=1, proxy: Union[str] = Cookie(None)):
