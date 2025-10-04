@@ -10,6 +10,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool 
+import ytpb
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates")) 
@@ -65,7 +66,6 @@ invidious_api_data = {
 }
 
 class InvidiousAPI:
-    # 修正済み: selfself から self に変更
     def __init__(self):
         self.all = invidious_api_data
         self.video = list(self.all['video']); 
@@ -100,8 +100,15 @@ def requestAPI(path, api_urls):
     raise APITimeoutError("All available API instances failed to respond.")
 
 def formatSearchData(data_dict, failed="Load Failed"):
+    # 修正: "live"タイプのチェックを削除し、従来の"video"のみを対象とする
     if data_dict["type"] == "video": 
-        return {"type": "video", "title": data_dict.get("title", failed), "id": data_dict.get("videoId", failed), "author": data_dict.get("author", failed), "published": data_dict.get("publishedText", failed), "length": str(datetime.timedelta(seconds=data_dict.get("lengthSeconds", 0))), "view_count_text": data_dict.get("viewCountText", failed)}
+        return {"type": "video", 
+                "title": data_dict.get("title", failed), 
+                "id": data_dict.get("videoId", failed), 
+                "author": data_dict.get("author", failed), 
+                "published": data_dict.get("publishedText", failed), 
+                "length": str(datetime.timedelta(seconds=data_dict.get("lengthSeconds", 0))), 
+                "view_count_text": data_dict.get("viewCountText", failed)}
     elif data_dict["type"] == "playlist": 
         return {"type": "playlist", "title": data_dict.get("title", failed), "id": data_dict.get('playlistId', failed), "thumbnail": data_dict.get("playlistThumbnail", failed), "count": data_dict.get("videoCount", failed)}
     elif data_dict["type"] == "channel":
@@ -110,14 +117,79 @@ def formatSearchData(data_dict, failed="Load Failed"):
         return {"type": "channel", "author": data_dict.get("author", failed), "id": data_dict.get("authorId", failed), "thumbnail": thumbnail}
     return {"type": "unknown", "data": data_dict}
 
+# ytpbを使ってライブストリームのHLS/DASHマニフェストURLを取得する関数 (再生のために維持)
+def get_ytpb_live_stream_url(videoid):
+    """ytpbを使ってライブストリームのHLS/DASHマニフェストURLを取得する"""
+    try:
+        # YouTubeのURLからストリームオブジェクトを作成
+        stream = ytpb.Stream(f"https://www.youtube.com/watch?v={videoid}")
+        
+        # HLS/DASHマニフェストURLを取得 (ライブ配信で使われるURL)
+        manifest_url = stream.get_manifest_url()
+        return manifest_url
+    except Exception as e:
+        # ライブ動画ではない、または取得失敗
+        print(f"ytpb error for {videoid}: {e}")
+        return None
+
 async def getVideoData(videoid):
-    t_text = await run_in_threadpool(requestAPI, f"/videos/{urllib.parse.quote(videoid)}", invidious_api.video)
-    t = json.loads(t_text)
+    failed = "Load Failed"
+    t = {}
+    
+    # 1. Invidious APIを試行して動画情報を取得
+    try:
+        t_text = await run_in_threadpool(requestAPI, f"/videos/{urllib.parse.quote(videoid)}", invidious_api.video)
+        t = json.loads(t_text)
+    except APITimeoutError:
+        pass # Invidious API失敗時は空の辞書のまま続行
+
+    video_urls = []
+    
+    # Invidiousのレスポンスからライブ情報を確認
+    is_live = t.get('isLive', False)
+
+    # 1. InvidiousがHLS URLを返している場合、それを採用 (Invidiousでのライブストリーム)
+    if 'hlsUrl' in t and t['hlsUrl']:
+        video_urls = [t['hlsUrl']]
+        
+    # 2. Invidiousが通常のストリームURLを返している場合、それを採用 (通常動画)
+    elif t.get("formatStreams"):
+        video_urls = list(reversed([i["url"] for i in t["formatStreams"]]))[:2]
+    
+    # 3. ライブ動画である、またはストリームURLが取得できなかった場合、ytpbをフォールバックとして試行
+    if is_live and not video_urls:
+        # ytpbはブロッキング操作を含むため、スレッドプールで実行
+        live_url = await run_in_threadpool(get_ytpb_live_stream_url, videoid)
+        if live_url:
+            video_urls = [live_url]
+
+    # ライブ動画のデータ形式を調整
+    if is_live:
+        length_text = 'LIVE'
+        view_count = t.get("viewCount", "LIVE")
+    else:
+        length_text = str(datetime.timedelta(seconds=t.get("lengthSeconds", 0)))
+        view_count = t.get("viewCount", failed)
+        
     recommended_videos = t.get('recommendedvideo') or t.get('recommendedVideos') or []
+    
+    # Invidious APIが完全に失敗した場合のフォールバック
+    if not t:
+        return [
+            {'video_urls': video_urls, 'description_html': failed, 'title': failed, 'length_text': failed, 'author_id': failed, 'author': failed, 'author_thumbnails_url': failed, 'view_count': failed, 'like_count': failed, 'subscribers_count': failed}, []
+        ]
+
     return [{
-        'video_urls': list(reversed([i["url"] for i in t["formatStreams"]]))[:2],
-        'description_html': t["descriptionHtml"].replace("\n", "<br>"), 'title': t["title"],
-        'length_text': str(datetime.timedelta(seconds=t["lengthSeconds"])), 'author_id': t["authorId"], 'author': t["author"], 'author_thumbnails_url': t["authorThumbnails"][-1]["url"], 'view_count': t["viewCount"], 'like_count': t["likeCount"], 'subscribers_count': t["subCountText"]
+        'video_urls': video_urls,
+        'description_html': t.get("descriptionHtml", failed).replace("\n", "<br>"), 
+        'title': t.get("title", failed),
+        'length_text': length_text, 
+        'author_id': t.get("authorId", failed), 
+        'author': t.get("author", failed), 
+        'author_thumbnails_url': t.get("authorThumbnails", [{}])[-1].get("url", failed), 
+        'view_count': view_count, 
+        'like_count': t.get("likeCount", failed), 
+        'subscribers_count': t.get("subCountText", failed)
     }, [
         {"video_id": i["videoId"], "title": i["title"], "author_id": i["authorId"], "author": i["author"], "length_text": str(datetime.timedelta(seconds=i["lengthSeconds"])), "view_count_text": i["viewCountText"]}
         for i in recommended_videos
@@ -195,7 +267,7 @@ async def hashtag_search(tag:str):
 @app.get("/channel/{channelid}", response_class=HTMLResponse)
 async def channel(channelid:str, request: Request, proxy: Union[str] = Cookie(None)):
     t = await getChannelData(channelid)
-    return templates.TemplateResponse("channel.html", {"request": request, "results": t[0], "channel_name": t[1]["channel_name"], "channel_icon": t[1]["channel_icon"], "channel_profile": t[1]["channel_profile"], "cover_img_url": t[1]["author_banner"], "subscribers_count": t[1]["subscribers_count"], "proxy": proxy})
+    return templates.TemplateResponse("channel.html", {"request": request, "results": t[0], "channel_name": t[1]["channel_name"], "channel_icon": t[1]["channel_icon"], "channel_profile": t[1]["descriptionHtml"], "cover_img_url": t[1]["author_banner"], "subscribers_count": t[1]["subscribers_count"], "proxy": proxy})
 
 @app.get("/playlist", response_class=HTMLResponse)
 async def playlist(list_id:str, request: Request, page:Union[int, None]=1, proxy: Union[str] = Cookie(None)):
