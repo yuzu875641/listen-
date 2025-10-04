@@ -7,14 +7,13 @@
     <div class="main-video-area">
         <div style="width: 100%; aspect-ratio: 16/9; background-color: black; position: relative; overflow: hidden; border-radius: 8px;">
             {% if videourls %}
-                {% set embed_url = videourls[0].split('/watch')[0] + '/embed/' + videoid %}
-                <iframe 
-                    src="{{ embed_url }}" 
-                    frameborder="0" 
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
-                    allowfullscreen
+                <video controls autoplay
                     style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;">
-                </iframe>
+                    <source src="{{ videourls[0] }}" type="application/x-mpegURL">
+                    <div style="color: white; display: flex; align-items: center; justify-content: center; height: 100%;">
+                        お使いのブラウザは動画形式をサポートしていません。
+                    </div>
+                </video>
             {% else %}
                 <div style="color: white; display: flex; align-items: center; justify-content: center; height: 100%;">
                     動画URLの取得に失敗しました。
