@@ -33,21 +33,14 @@
         </div>
 
         <div id="yuzutube-player" style="display: block; width: 100%; aspect-ratio: 16/9; background-color: black; position: relative; overflow: hidden; border-radius: 8px;">
-            {# 動画の読み込み失敗時のメッセージを扱うためのコンテナ #}
-            <div id="video-load-message" style="color: white; display: flex; align-items: center; justify-content: center; height: 100%; font-size: 18px; position: absolute; top: 0; left: 0; width: 100%; z-index: 10; background-color: rgba(0, 0, 0, 0.8); display: none;">
-                🔄 動画ストリームを読み込み中...
-            </div>
-            
-            {# ★★★ 全画面表示に対応した標準の <video> タグを使用 ★★★ #}
-            <video id="stream-video" controls autoplay
+            {# ★★★ Iframeを使用して動画ストリームURLを埋め込み、全画面を許可 ★★★ #}
+            <iframe id="stream-iframe"
+                src="https://pooo-eta.vercel.app/watch?v={{ videoid }}&itag=91" 
+                frameborder="0"
+                allow="autoplay; fullscreen; picture-in-picture" 
+                allowfullscreen 
                 style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;">
-                <source id="video-source" 
-                        src="https://pooo-eta.vercel.app/watch?v={{ videoid }}&itag=91" 
-                        type="application/x-mpegURL">
-                <div style="color: white; display: flex; align-items: center; justify-content: center; height: 100%;">
-                    お使いのブラウザは動画形式をサポートしていません。
-                </div>
-            </video>
+            </iframe>
         </div>
 
         <div id="youtube-embed-player" style="display: none; width: 100%; aspect-ratio: 16/9; position: relative; overflow: hidden; border-radius: 8px;">
@@ -109,7 +102,6 @@
 
 <script>
     function loadComments(videoId) {
-        // ... (コメントロード関数は変更なし) ...
         const commentList = document.getElementById('comment-list');
         commentList.innerHTML = '<div style="color: var(--yt-sub-text);">コメントを読み込み中...</div>';
         fetch(`/comments?v=${videoId}`)
@@ -128,15 +120,19 @@
             });
     }
 
+    /**
+     * 動画プレーヤーを切り替え、ボタンのスタイルを更新する関数
+     */
     function showPlayer(playerId) {
         const yuzuPlayer = document.getElementById('yuzutube-player');
         const youtubePlayer = document.getElementById('youtube-embed-player');
         const yuzuBtn = document.getElementById('yuzu-btn');
         const youtubeBtn = document.getElementById('youtube-btn');
         const qualitySelector = document.getElementById('quality-selector');
-        // ★ video要素を取得
-        const videoElement = document.getElementById('stream-video'); 
-        const loadMessage = document.getElementById('video-load-message');
+        // Iframe要素を取得
+        const streamIframe = document.getElementById('stream-iframe'); 
+        
+        // ★ Iframe内の動画を停止させることはできないため、ここでは要素の表示/非表示のみを行う
 
         if (playerId === 'yuzutube-player') {
             yuzuPlayer.style.display = 'block';
@@ -146,17 +142,6 @@
             youtubeBtn.style.backgroundColor = 'var(--yt-bg)';
             qualitySelector.style.display = 'block';
 
-            // ロードが完了していない場合にのみメッセージを表示
-            loadMessage.innerHTML = '🔄 動画ストリームを読み込み中...';
-            if (videoElement.readyState < 3) {
-                 loadMessage.style.display = 'flex';
-            }
-            
-            // 再生を試みる (自動再生がブロックされる場合がある)
-            if (videoElement.paused) {
-                videoElement.play().catch(error => console.log("自動再生がブロックされました:", error));
-            }
-            
         } else {
             yuzuPlayer.style.display = 'none';
             youtubePlayer.style.display = 'block';
@@ -164,72 +149,27 @@
             yuzuBtn.style.backgroundColor = 'var(--yt-bg)';
             youtubeBtn.style.backgroundColor = 'var(--yt-light-dark)';
             qualitySelector.style.display = 'none';
-
-            // ストリーム動画を一時停止し、ロードメッセージを非表示
-            if (videoElement) {
-                videoElement.pause();
-            }
-            loadMessage.style.display = 'none';
         }
     }
 
     /**
-     * 新しいitagに基づいてストリームURLを更新し、動画をリロードする関数
+     * 新しいitagに基づいてストリームURLを更新し、iframeをリロードする関数
      */
     function changeQuality(itag, videoId) {
-        const videoElement = document.getElementById('stream-video');
-        const sourceElement = document.getElementById('video-source');
-        const loadMessage = document.getElementById('video-load-message');
+        // Iframe要素を取得
+        const streamIframe = document.getElementById('stream-iframe');
         
         // 新しいURLを生成
         const newUrl = `https://pooo-eta.vercel.app/watch?v=${videoId}&itag=${itag}`;
         
-        if (videoElement && sourceElement) {
-            // ロード開始時にメッセージを表示
-            loadMessage.innerHTML = '🔄 動画ストリームを読み込み中...';
-            loadMessage.style.display = 'flex';
-            
-            // 既存のイベントリスナーを一度クリア
-            videoElement.removeEventListener('canplay', handleCanplay);
-            videoElement.removeEventListener('error', handleError);
-            
-            sourceElement.src = newUrl;
-            videoElement.load();
-            
-            // 新しいイベントリスナーを追加
-            videoElement.addEventListener('canplay', handleCanplay, { once: true });
-            videoElement.addEventListener('error', handleError, { once: true });
+        if (streamIframe) {
+            // src属性を更新することで、Iframeを再ロードし、新しい画質の動画を読み込ませる
+            // これにより、動画の再生が自動的に開始されるかどうかはIframe内のプレイヤーの実装に依存する
+            streamIframe.src = newUrl;
         }
     }
-
-    // イベントリスナーのハンドラ関数を定義
-    function handleCanplay() {
-        const videoElement = document.getElementById('stream-video');
-        const loadMessage = document.getElementById('video-load-message');
-        
-        loadMessage.style.display = 'none';
-        videoElement.play().catch(error => {
-            console.log("動画の自動再生に失敗しました (ユーザー操作が必要):", error);
-        });
-    }
-
-    function handleError() {
-        const loadMessage = document.getElementById('video-load-message');
-        loadMessage.innerHTML = '🚫 **動画ストリームの取得に失敗しました。** 画質を変更するか、YouTube埋め込みをお試しください。';
-    }
     
-    // ページロード時の初期設定
-    document.addEventListener('DOMContentLoaded', () => {
-        const videoId = '{{ videoid }}';
-        loadComments(videoId);
-        
-        // 初期ロードで動画にイベントリスナーを設定
-        const videoElement = document.getElementById('stream-video');
-        videoElement.addEventListener('canplay', handleCanplay, { once: true });
-        videoElement.addEventListener('error', handleError, { once: true });
-        
-        // 初期ロードメッセージを表示
-        document.getElementById('video-load-message').style.display = 'flex';
-    });
+    // ページロード時にコメントを自動で読み込む
+    loadComments('{{ videoid }}');
 </script>
 {% endblock %}
