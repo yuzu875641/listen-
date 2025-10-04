@@ -3,51 +3,115 @@
 {% block title %}{{ video_title }} - yuzutube{% endblock %}
 
 {% block content %}
-<div class="watch-page-container" style="display: flex; padding: 24px;">
-    <div class="main-video-area" style="flex-basis: 70%; max-width: 1000px; margin-right: 24px;">
-        <video controls autoplay style="width: 100%; aspect-ratio: 16/9; background-color: black;">
-            <source src="{{ videourls[0] }}" type="video/mp4">
-            ブラウザが動画タグをサポートしていません。
-        </video>
+<div class="watch-page-container flex flex-col lg:flex-row p-6">
+    <div class="main-video-area lg:flex-1 lg:max-w-4xl lg:mr-6">
+        <div class="video-player-wrapper w-full aspect-video bg-black rounded-lg overflow-hidden shadow-lg">
+            {% if videourls %}
+                {% set embed_url = videourls[0].split('/watch')[0] + '/embed/' + videoid %}
+                <iframe 
+                    src="{{ embed_url }}" 
+                    frameborder="0" 
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+                    allowfullscreen
+                    class="w-full h-full">
+                </iframe>
+            {% else %}
+                <div class="flex items-center justify-center h-full text-white">
+                    動画URLの取得に失敗しました。
+                </div>
+            {% endif %}
+        </div>
 
-        <h1 style="font-size: 24px; margin: 16px 0;">{{ video_title }}</h1>
+        <h1 class="text-2xl font-bold mt-4 mb-2">{{ video_title }}</h1>
 
-        <div class="metadata" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--yt-separator); padding-bottom: 8px;">
-            <div class="channel-info" style="display: flex; align-items: center;">
+        <div class="metadata flex flex-col sm:flex-row justify-between items-start sm:items-center border-b pb-3 mb-3">
+            <div class="channel-info flex items-center mb-3 sm:mb-0">
                 <a href="/channel/{{ author_id }}">
-                    <img src="{{ author_icon }}" style="width: 40px; height: 40px; border-radius: 50%; margin-right: 12px;">
+                    <img src="{{ author_icon }}" alt="{{ author }}のアイコン" class="w-10 h-10 rounded-full mr-3">
                 </a>
                 <div>
-                    <a href="/channel/{{ author_id }}" style="color: var(--yt-text); font-weight: bold;">{{ author }}</a>
-                    <p style="font-size: 12px; color: var(--yt-sub-text);">チャンネル登録者数: {{ subscribers_count }}</p>
+                    <a href="/channel/{{ author_id }}" class="font-semibold hover:text-blue-500">{{ author }}</a>
+                    <p class="text-sm text-gray-500">チャンネル登録者数: {{ subscribers_count }}</p>
                 </div>
             </div>
-            <div class="counts" style="color: var(--yt-sub-text); font-size: 14px;">
+            <div class="counts text-sm text-gray-500">
                 <span>{{ view_count }} 回視聴</span>
-                <span style="margin-left: 10px;">👍 {{ like_count }}</span>
-                <a href="/comments?v={{ videoid }}" style="margin-left: 20px; color: var(--yt-sub-text);">コメントを見る</a>
+                <span class="ml-4">👍 {{ like_count }}</span>
             </div>
         </div>
         
-        <div class="description" style="margin-top: 16px;">
-            <p>{{ description | safe }}</p>
+        <div class="description bg-gray-100 p-4 rounded-lg shadow-sm mb-6">
+            <h3 class="font-semibold mb-2">概要</h3>
+            <p class="text-sm whitespace-pre-wrap">{{ description | safe }}</p>
+        </div>
+        
+        <div id="comments-container" class="bg-white p-4 rounded-lg shadow-md mt-4 border">
+            <button id="load-comments-button" 
+                    onclick="loadComments('{{ videoid }}')"
+                    class="w-full py-2 px-4 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition duration-150 ease-in-out shadow-md">
+                コメントを読み込む
+            </button>
+            <div id="comment-list" class="mt-4">
+                </div>
         </div>
     </div>
 
-    <div class="recommended-videos" style="flex-basis: 30%;">
-        <h2 style="font-size: 18px; margin-top: 0;">おすすめ</h2>
-        {% for video in recommended_videos %}
-        <div class="recommended-card" style="margin-bottom: 12px;">
-            <a href="/watch?v={{ video.video_id }}" style="display: flex;">
-                <img src="/thumbnail?v={{ video.video_id }}" style="width: 168px; height: 94px; object-fit: cover; border-radius: 4px; margin-right: 8px;">
+    <div class="recommended-videos lg:flex-1 lg:max-w-xs mt-6 lg:mt-0">
+        <h2 class="text-xl font-bold mb-4">おすすめ</h2>
+        <div class="space-y-3">
+            {% for video in recommended_videos %}
+            <a href="/watch?v={{ video.video_id }}" class="flex hover:bg-gray-100 p-2 rounded-lg transition duration-150">
+                <img src="/thumbnail?v={{ video.video_id }}" 
+                     onerror="this.onerror=null;this.src='https://via.placeholder.com/168x94?text=No+Image';"
+                     alt="{{ video.title }}" 
+                     class="w-40 h-24 object-cover rounded-md flex-shrink-0 mr-3">
                 <div class="recommended-meta">
-                    <p style="color: var(--yt-text); font-size: 14px; margin: 0;">{{ video.title }}</p>
-                    <p style="color: var(--yt-sub-text); font-size: 12px; margin: 2px 0;">{{ video.author }}</p>
-                    <p style="color: var(--yt-sub-text); font-size: 12px; margin: 2px 0;">{{ video.view_count_text }}</p>
+                    <p class="text-sm font-semibold line-clamp-2">{{ video.title }}</p>
+                    <p class="text-xs text-gray-600">{{ video.author }}</p>
+                    <p class="text-xs text-gray-500">{{ video.view_count_text }}</p>
                 </div>
             </a>
+            {% endfor %}
         </div>
-        {% endfor %}
     </div>
 </div>
+
+<script>
+    function loadComments(videoId) {
+        const commentList = document.getElementById('comment-list');
+        const button = document.getElementById('load-comments-button');
+        
+        // 既にロードされていたら何もしない
+        if (commentList.getAttribute('data-loaded') === 'true') {
+            return;
+        }
+
+        button.disabled = true;
+        button.textContent = 'コメントを読み込み中...';
+        button.classList.replace('bg-blue-600', 'bg-gray-400'); // ロード中のスタイルに変更
+        
+        // /comments?v=<videoid> エンドポイントからHTMLフラグメントをフェッチ
+        fetch(`/comments?v=${videoId}`)
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('コメントの読み込みに失敗しました。');
+                }
+                return response.text();
+            })
+            .then(html => {
+                // 取得したHTML (comments.htmlの内容) をコンテナに挿入
+                commentList.innerHTML = html;
+                commentList.setAttribute('data-loaded', 'true');
+                button.remove(); // ロードが完了したらボタンを削除
+            })
+            .catch(error => {
+                console.error('コメントのロード中にエラーが発生:', error);
+                commentList.innerHTML = '<div class="text-red-500 p-4">コメントの読み込み中にエラーが発生しました。</div>';
+                button.textContent = 'コメントの読み込みに失敗';
+                button.classList.replace('bg-gray-400', 'bg-red-500');
+                button.disabled = false; // エラー時は再試行できるようにする
+            });
+    }
+
+</script>
 {% endblock %}
