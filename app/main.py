@@ -121,7 +121,10 @@ def formatSearchData(data_dict, failed="Load Failed"):
     return {"type": "unknown", "data": data_dict}
 
 def get_fallback_video_data(videoid):
-    """緊急APIからtitleとitag=18の動画URLを取得する。itag=18が見つからない場合はNoneを返す。"""
+    """
+    緊急APIからタイトルと再生可能なMP4動画URLを取得する。
+    優先順位: itag=96 -> itag=18 -> 最初のmp4フォーマット
+    """
     try:
         res = requests.get(FALLBACK_API + videoid, headers=getRandomUserAgent(), timeout=max_api_wait_time)
         
@@ -130,29 +133,32 @@ def get_fallback_video_data(videoid):
 
         data = res.json()
         title = data.get("title", "タイトル不明")
-        
-        # formatsリストからitagが18のURLを見つける
         formats = data.get("formats", [])
-        itag_18_url = None
-        for fmt in formats:
-            # itagは文字列として格納されている可能性があるため、str()で比較
-            if str(fmt.get("itag")) == "18":
-                itag_18_url = fmt.get("url")
-                break
         
-        # itag=18が見つからない場合は、他のmp4/webmのURLから最初に使えるものを見つけても良いですが、
-        # ここではユーザーの意図に従い、特定のitagが見つからない場合はNoneとします。
-        
-        # もしitag=18が見つからなかった場合のフォールバックとして、
-        # 最初のmp4またはwebm動画URLを取得する場合は、以下のコメントを解除してください。
-        # if not itag_18_url:
-        #     for fmt in formats:
-        #         ext = fmt.get("ext", "")
-        #         if ext in ["mp4", "webm"] and "video" in fmt.get("mimeType", ""):
-        #             itag_18_url = fmt.get("url")
-        #             break
+        # 1. ユーザー指定のitag=96を最優先で探す
+        target_itag_96_url = next((fmt.get("url") for fmt in formats if str(fmt.get("itag")) == "96"), None)
+        if target_itag_96_url:
+            print(f"Fallback: Found itag 96 URL for {videoid}")
+            return title, target_itag_96_url
 
-        return title, itag_18_url
+        # 2. 標準的なitag=18を探す
+        target_itag_18_url = next((fmt.get("url") for fmt in formats if str(fmt.get("itag")) == "18"), None)
+        if target_itag_18_url:
+            print(f"Fallback: Found itag 18 URL for {videoid}")
+            return title, target_itag_18_url
+            
+        # 3. それ以外の有効なMP4動画URLを探す
+        generic_mp4_url = next((
+            fmt.get("url") for fmt in formats 
+            if fmt.get("ext") == "mp4" and "video" in fmt.get("mimeType", "") and fmt.get("url")
+        ), None)
+
+        if generic_mp4_url:
+            print(f"Fallback: Found generic MP4 URL for {videoid}")
+            return title, generic_mp4_url
+
+        print(f"Fallback: No suitable MP4 URL found for {videoid}")
+        return title, None
         
     except requests.exceptions.RequestException as e:
         print(f"Fallback API error for {videoid}: {e}")
@@ -297,7 +303,7 @@ async def video(v:str, request: Request, proxy: Union[str] = Cookie(None)):
 @app.get('/w', response_class=HTMLResponse)
 async def sub_video(v:str, request: Request):
     # 緊急フォールバックAPIを試行 (ブロッキング処理)
-    # itag=18のURLとタイトルを取得
+    # itag=96 -> itag=18 -> 最初のmp4の優先順位でURLを取得
     title, url = await run_in_threadpool(get_fallback_video_data, v)
     
     # subvideo.htmlをレンダリング
