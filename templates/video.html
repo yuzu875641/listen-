@@ -143,14 +143,14 @@
             hls.destroy();
         }
 
-        // 既存のイベントリスナーを削除 (動画のロード状態をクリア)
+        // 既存のロード状態をリセット
         videoElement.removeAttribute('src'); 
         videoElement.load();
 
         // ロードタイマーをリセット
         clearTimeout(loadTimer);
         
-        // hls.jsがサポートされているかチェック (デスクトップブラウザ向け)
+        // hls.jsがグローバルに利用可能か確認し、サポートされているかチェック
         if (typeof Hls !== 'undefined' && Hls.isSupported()) {
             hls = new Hls();
             hls.attachMedia(videoElement);
@@ -158,15 +158,14 @@
                 hls.loadSource(url);
             });
 
-            // マニフェストがパースされたら（ロード成功の兆候）、メッセージを非表示
+            // MANIFEST_PARSED（マニフェスト解析完了）を成功と見なす
             hls.on(Hls.Events.MANIFEST_PARSED, function (event, data) {
                 clearTimeout(loadTimer);
                 loadMessage.style.display = 'none';
-                // 自動再生を試みる
                 videoElement.play().catch(error => console.log("自動再生がブロックされました:", error));
             });
             
-            // エラーが発生してもコンソールに出るだけなので、ユーザーにはロード失敗を伝える
+            // HLSのエラーハンドリング
             hls.on(Hls.Events.ERROR, function (event, data) {
                  if (data.fatal) {
                     console.error('HLS致命的エラー:', data);
@@ -176,7 +175,7 @@
             });
 
         } else if (videoElement.canPlayType('application/vnd.apple.mpegurl')) {
-            // ネイティブHLS対応ブラウザ (主にiOS/Safari)
+            // ネイティブHLS対応ブラウザ (iOS/Safari向け)
             videoElement.src = url;
             videoElement.load();
             videoElement.addEventListener('loadedmetadata', function () {
@@ -184,12 +183,15 @@
                 loadMessage.style.display = 'none';
                 videoElement.play();
             }, { once: true });
+            
         } else {
-            // どちらにも対応しない場合 (非常に古いブラウザなど)
-            loadMessage.innerHTML = '🚫 **お使いのブラウザはM3U8ストリームをサポートしていません。** YouTube埋め込みをお試しください。';
+            // hls.jsが読み込まれていないか、全く対応していない場合
+            loadMessage.innerHTML = '🚫 **M3U8再生ライブラリの初期化に失敗しました。** YouTube埋め込みをお試しください。';
+            
+             // Chromeでダウンロードが起こらないよう、srcを直接設定しないでおく
         }
 
-        // ロードが遅い場合のメッセージを強制的に表示し続けるタイマー (5秒後にメッセージを更新)
+        // ロードが遅い場合のメッセージを更新するタイマー (5秒後にメッセージを更新)
         loadTimer = setTimeout(() => {
              if(loadMessage.style.display !== 'none') {
                 loadMessage.innerHTML = '⚠️ **読み込みに時間がかかっています...しばらくお待ちください。**';
@@ -198,6 +200,7 @@
     }
 
     function showPlayer(playerId) {
+        // ... (省略: プレイヤー切り替えロジックは変更なし) ...
         const yuzuPlayer = document.getElementById('yuzutube-player');
         const youtubePlayer = document.getElementById('youtube-embed-player');
         const yuzuBtn = document.getElementById('yuzu-btn');
