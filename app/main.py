@@ -25,9 +25,10 @@ max_time = 10.0
 max_api_wait_time = (3.0, 5.0)
 failed = "Load Failed"
 
-# 緊急フォールバックAPIの定義
+# 緊急フォールバックAPIの定義 (ユーザー提供のAPI)
 FALLBACK_API = "https://siawaseok.f5.si/api/2/streams/"
 
+# Invidious API一覧
 invidious_api_data = {
     'video': [
         'https://yt.omada.cafe/',
@@ -120,9 +121,10 @@ def formatSearchData(data_dict, failed="Load Failed"):
     return {"type": "unknown", "data": data_dict}
 
 def get_fallback_video_data(videoid):
-    """緊急APIからtitleとitag=18の動画URLを取得する"""
+    """緊急APIからtitleとitag=18の動画URLを取得する。itag=18が見つからない場合はNoneを返す。"""
     try:
         res = requests.get(FALLBACK_API + videoid, headers=getRandomUserAgent(), timeout=max_api_wait_time)
+        
         if res.status_code != requests.codes.ok or not isJSON(res.text):
             return "タイトル不明", None
 
@@ -133,11 +135,23 @@ def get_fallback_video_data(videoid):
         formats = data.get("formats", [])
         itag_18_url = None
         for fmt in formats:
-            # itagが18であることを厳密にチェック
+            # itagは文字列として格納されている可能性があるため、str()で比較
             if str(fmt.get("itag")) == "18":
                 itag_18_url = fmt.get("url")
                 break
         
+        # itag=18が見つからない場合は、他のmp4/webmのURLから最初に使えるものを見つけても良いですが、
+        # ここではユーザーの意図に従い、特定のitagが見つからない場合はNoneとします。
+        
+        # もしitag=18が見つからなかった場合のフォールバックとして、
+        # 最初のmp4またはwebm動画URLを取得する場合は、以下のコメントを解除してください。
+        # if not itag_18_url:
+        #     for fmt in formats:
+        #         ext = fmt.get("ext", "")
+        #         if ext in ["mp4", "webm"] and "video" in fmt.get("mimeType", ""):
+        #             itag_18_url = fmt.get("url")
+        #             break
+
         return title, itag_18_url
         
     except requests.exceptions.RequestException as e:
@@ -155,6 +169,7 @@ async def getVideoData(videoid):
     
     # Invidiousが通常のストリームURLを返している場合、それを採用
     if t.get("formatStreams"):
+        # URLをリストの先頭2つに限定 (帯域節約のため)
         video_urls = list(reversed([i["url"] for i in t["formatStreams"]]))[:2]
     
     length_text = str(datetime.timedelta(seconds=t.get("lengthSeconds", 0)))
@@ -235,6 +250,7 @@ async def home(request: Request, proxy: Union[str] = Cookie(None)):
 @app.get('/watch', response_class=HTMLResponse)
 async def video(v:str, request: Request, proxy: Union[str] = Cookie(None)):
     try:
+        # Invidious APIからデータを取得。失敗した場合はAPITimeoutErrorをraise
         video_data = await getVideoData(v)
         return templates.TemplateResponse('video.html', {
             "request": request, "videoid": v, "videourls": video_data[0]['video_urls'], "description": video_data[0]['description_html'], "video_title": video_data[0]['title'], "author_id": video_data[0]['author_id'], "author_icon": video_data[0]['author_thumbnails_url'], "author": video_data[0]['author'], "length_text": video_data[0]['length_text'], "view_count": video_data[0]['view_count'], "like_count": video_data[0]['like_count'], "subscribers_count": video_data[0]['subscribers_count'], "recommended_videos": video_data[1], "proxy":proxy
@@ -243,13 +259,32 @@ async def video(v:str, request: Request, proxy: Union[str] = Cookie(None)):
         # Invidious API失敗時はエラーメッセージと緊急再生ルートへのリンクを提示
         error_html = f"""
         <html>
-        <head><title>APIエラー</title></head>
-        <body style="background-color:#0f0f0f; color:white; font-family:Arial, sans-serif; padding: 20px;">
+        <head>
+            <title>APIエラー</title>
+            <style>
+                body {{ background-color:#0f0f0f; color:white; font-family: 'Inter', sans-serif; padding: 20px; text-align: center; }}
+                h1 {{ color: #FF0000; margin-bottom: 10px; }}
+                p {{ margin-bottom: 20px; }}
+                a {{ 
+                    color: white; 
+                    background-color: #FF0000;
+                    font-size: 1.2em; 
+                    text-decoration: none; 
+                    border: none;
+                    padding: 12px 20px; 
+                    border-radius: 8px; 
+                    display: inline-block;
+                    transition: background-color 0.3s;
+                }}
+                a:hover {{ background-color: #CC0000; }}
+            </style>
+        </head>
+        <body>
             <h1>動画情報の取得に失敗しました😭</h1>
-            <p>全てのInvidious APIが応答しませんでした。</p>
-            <p>緊急フォールバック再生を試しますか？</p>
-            <p style="margin-top: 20px;">
-                <a href='/w?v={v}' style="color: red; font-size: 1.2em; text-decoration: none; border: 1px solid red; padding: 10px 15px; border-radius: 5px;">
+            <p>全てのInvidious APIインスタンスが応答しませんでした。</p>
+            <p>お手数ですが、緊急フォールバック再生を試してください。</p>
+            <p style="margin-top: 30px;">
+                <a href='/w?v={v}'>
                     緊急再生 ( /w?v={v} ) を試す
                 </a>
             </p>
@@ -258,10 +293,11 @@ async def video(v:str, request: Request, proxy: Union[str] = Cookie(None)):
         """
         return HTMLResponse(content=error_html, status_code=503)
 
-# ★ /w ルート (緊急フォールバック再生ルート)
+# /w ルート (緊急フォールバック再生ルート)
 @app.get('/w', response_class=HTMLResponse)
 async def sub_video(v:str, request: Request):
     # 緊急フォールバックAPIを試行 (ブロッキング処理)
+    # itag=18のURLとタイトルを取得
     title, url = await run_in_threadpool(get_fallback_video_data, v)
     
     # subvideo.htmlをレンダリング
