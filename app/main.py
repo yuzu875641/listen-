@@ -153,7 +153,7 @@ async def getPlaylistData(listid, page):
     return [{"title": i["title"], "id": i["videoId"], "authorId": i["authorId"], "author": i["author"], "type": "video"} for i in t]
 
 async def getCommentsData(videoid):
-    t_text = await run_in_threadpool(requestAPI, f"/comments/{urllib.parse.quote(videoid)}?hl=jp", invidious_api.comments)
+    t_text = await run_in_threadpool(requestAPI, f"/comments/{urllib.parse.quote(videoid)}", invidious_api.comments)
     t = json.loads(t_text)["comments"]
     return [{"author": i["author"], "authoricon": i["authorThumbnails"][-1]["url"], "authorid": i["authorId"], "body": i["contentHtml"].replace("\n", "<br>")} for i in t]
 
