@@ -5,7 +5,18 @@
 {% block content %}
 <div class="watch-page-container">
     <div class="main-video-area">
-        <div style="width: 100%; aspect-ratio: 16/9; background-color: black; position: relative; overflow: hidden; border-radius: 8px;">
+        <div style="margin-bottom: 10px;">
+            <button id="yuzu-btn" onclick="showPlayer('yuzutube-player');" 
+                style="padding: 8px 15px; cursor: pointer; border: 1px solid var(--yt-sub-text); color: var(--yt-text); background-color: var(--yt-light-dark);">
+                ストリームURLで再生
+            </button>
+            <button id="youtube-btn" onclick="showPlayer('youtube-embed-player');" 
+                style="padding: 8px 15px; cursor: pointer; border: 1px solid var(--yt-sub-text); color: var(--yt-text); background-color: var(--yt-bg);">
+                YouTube埋め込みで再生
+            </button>
+        </div>
+
+        <div id="yuzutube-player" style="display: block; width: 100%; aspect-ratio: 16/9; background-color: black; position: relative; overflow: hidden; border-radius: 8px;">
             {% if videourls and videourls[0] != "Load Failed" %}
                 <video controls autoplay
                     style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;">
@@ -19,6 +30,16 @@
                     🚫 **動画ストリームの取得に失敗しました。**
                 </div>
             {% endif %}
+        </div>
+
+        <div id="youtube-embed-player" style="display: none; width: 100%; aspect-ratio: 16/9; position: relative; overflow: hidden; border-radius: 8px;">
+            <iframe width="100%" height="100%"
+                src="https://www.youtube-nocookie.com/embed/{{ videoid }}?autoplay=1"
+                frameborder="0"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowfullscreen
+                style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;">
+            </iframe>
         </div>
 
         <h1 style="font-size: 24px; margin: 16px 0;">{{ video_title }}</h1>
@@ -93,9 +114,45 @@
             });
     }
 
+    /**
+     * 動画プレーヤーを切り替え、ボタンのスタイルを更新する関数
+     * @param {string} playerId - 表示するプレーヤーのID ('yuzutube-player' or 'youtube-embed-player')
+     */
+    function showPlayer(playerId) {
+        const yuzuPlayer = document.getElementById('yuzutube-player');
+        const youtubePlayer = document.getElementById('youtube-embed-player');
+        const yuzuBtn = document.getElementById('yuzu-btn');
+        const youtubeBtn = document.getElementById('youtube-btn');
+        const videoElement = yuzuPlayer.querySelector('video');
+
+        if (playerId === 'yuzutube-player') {
+            // ストリームURLによるプレーヤーを表示
+            yuzuPlayer.style.display = 'block';
+            youtubePlayer.style.display = 'none';
+            
+            // ボタンのスタイル更新 (ストリームURLによる再生をアクティブに)
+            yuzuBtn.style.backgroundColor = 'var(--yt-light-dark)';
+            youtubeBtn.style.backgroundColor = 'var(--yt-bg)';
+
+            // YouTube埋め込みが非表示になるので、ストリームURLによる再生を開始
+            // videoElement.play() は不要な場合があるためコメントアウト（`autoplay`属性に依存）
+
+        } else {
+            // YouTube埋め込みプレーヤーを表示
+            yuzuPlayer.style.display = 'none';
+            youtubePlayer.style.display = 'block';
+            
+            // ボタンのスタイル更新 (YouTube埋め込みをアクティブに)
+            yuzuBtn.style.backgroundColor = 'var(--yt-bg)';
+            youtubeBtn.style.backgroundColor = 'var(--yt-light-dark)';
+
+            // ストリームURLによるプレーヤーを非表示にする際、再生を停止
+            if (videoElement) videoElement.pause();
+        }
+    }
+
     // ★ ページロード時にコメントを自動で読み込む
     loadComments('{{ videoid }}');
 
 </script>
 {% endblock %}
-修正
