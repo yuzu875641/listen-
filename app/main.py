@@ -182,7 +182,7 @@ async def getPrimaryStreamUrl(videoid):
     logger.info(f"--- Stream API Request Started for video: {videoid} ---")
     
     # Specific, strict timeout for the new stream API
-    STREAM_API_TIMEOUT = (3.0, 2.0)
+    STREAM_API_TIMEOUT = (15.0, 5.0)
 
     def fetch_stream_url_sync():
         try:
