@@ -11,21 +11,16 @@ from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool 
 
-# ----------------------------------------------------
-# 設定とユーティリティ
-# ----------------------------------------------------
 BASE_DIR = Path(__file__).resolve().parent.parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates")) 
 
 class APITimeoutError(Exception): pass
-def getRandomUserAgent(): return {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/94.0.4606.61 Safari/537.36'}
+def getRandomUserAgent(): return {'User-Agent': 'Mozilla/50 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/94.0.4606.61 Safari/537.36'}
 def isJSON(json_str):
     try: json.loads(json_str); return True
     except json.JSONDecodeError: return False
-# updateList 関数は、ここでは使われていないか、またはrequestAPI内で直接リストを操作する方がシンプルなので省略します。
 
-
-# グローバル変数 (設定値)
+# Global Configuration
 max_time = 10.0
 max_api_wait_time = (3.0, 5.0)
 failed = "Load Failed"
@@ -70,7 +65,7 @@ invidious_api_data = {
 }
 
 class InvidiousAPI:
-    def __init__(self):
+    def __init__(selfself):
         self.all = invidious_api_data
         self.video = list(self.all['video']); 
         self.playlist = list(self.all['playlist']);
@@ -81,34 +76,28 @@ class InvidiousAPI:
 
 def requestAPI(path, api_urls):
     """
-    APIリクエストを行う (スレッドプールで実行される)
-    リスト内のURLを定義された順序で試行する。
+    Sequentially attempts API requests using the provided list of URLs.
+    Fails over to the next URL on connection error or non-OK response.
     """
     starttime = time.time()
     
-    # ★ 改善: シャッフルせずに、定義された順序 (api_urls) でループする
     apis_to_try = api_urls
     
     for api in apis_to_try:
-        # タイムアウトに近づいたらループを抜ける
         if time.time() - starttime >= max_time - 1:
             break
             
         try:
             res = requests.get(api + 'api/v1' + path, headers=getRandomUserAgent(), timeout=max_api_wait_time)
             
-            # ステータスコードがOKでJSONとしてパース可能であれば成功
             if res.status_code == requests.codes.ok and isJSON(res.text):
                 return res.text
             
         except requests.exceptions.RequestException:
-            # 接続エラーやタイムアウトが発生した場合、次を試す
             continue
             
-    # 全てのAPIインスタンスが失敗した場合
-    raise APITimeoutError("利用可能な全てのAPIインスタンスがタイムアウトしました。")
+    raise APITimeoutError("All available API instances failed to respond.")
 
-# (以降の関数定義は変更なし)
 def formatSearchData(data_dict, failed="Load Failed"):
     if data_dict["type"] == "video": 
         return {"type": "video", "title": data_dict.get("title", failed), "id": data_dict.get("videoId", failed), "author": data_dict.get("author", failed), "published": data_dict.get("publishedText", failed), "length": str(datetime.timedelta(seconds=data_dict.get("lengthSeconds", 0))), "view_count_text": data_dict.get("viewCountText", failed)}
@@ -120,7 +109,6 @@ def formatSearchData(data_dict, failed="Load Failed"):
         return {"type": "channel", "author": data_dict.get("author", failed), "id": data_dict.get("authorId", failed), "thumbnail": thumbnail}
     return {"type": "unknown", "data": data_dict}
 
-# --- 非同期データ取得関数 (変更なし) ---
 async def getVideoData(videoid):
     t_text = await run_in_threadpool(requestAPI, f"/videos/{urllib.parse.quote(videoid)}", invidious_api.video)
     t = json.loads(t_text)
@@ -169,9 +157,7 @@ async def getCommentsData(videoid):
     return [{"author": i["author"], "authoricon": i["authorThumbnails"][-1]["url"], "authorid": i["authorId"], "body": i["contentHtml"].replace("\n", "<br>")} for i in t]
 
 
-# ----------------------------------------------------
-# FastAPIアプリ本体とルート定義
-# ----------------------------------------------------
+# FastAPI Application
 app = FastAPI()
 invidious_api = InvidiousAPI() 
 
@@ -184,11 +170,8 @@ app.mount(
 
 @app.get('/', response_class=HTMLResponse)
 async def home(request: Request, proxy: Union[str] = Cookie(None)):
-    return templates.TemplateResponse("search.html", {
+    return templates.TemplateResponse("index.html", {
         "request": request, 
-        "results": [],
-        "word": "動画を検索",
-        "next": "",
         "proxy": proxy
     })
 
