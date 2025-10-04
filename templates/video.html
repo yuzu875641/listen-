@@ -115,7 +115,7 @@
     }
 
     /**
-     * 動画プレーヤーを切り替え、ボタンのスタイルを更新する関数
+     * 動画プレーヤーを切り替え、ボタンのスタイルを更新し、非表示になる動画を一時停止する関数
      * @param {string} playerId - 表示するプレーヤーのID ('yuzutube-player' or 'youtube-embed-player')
      */
     function showPlayer(playerId) {
@@ -123,31 +123,33 @@
         const youtubePlayer = document.getElementById('youtube-embed-player');
         const yuzuBtn = document.getElementById('yuzu-btn');
         const youtubeBtn = document.getElementById('youtube-btn');
-        const videoElement = yuzuPlayer.querySelector('video');
+        // ストリームURLの動画要素を取得
+        const videoElement = yuzuPlayer.querySelector('video'); 
 
         if (playerId === 'yuzutube-player') {
             // ストリームURLによるプレーヤーを表示
             yuzuPlayer.style.display = 'block';
             youtubePlayer.style.display = 'none';
             
-            // ボタンのスタイル更新 (ストリームURLによる再生をアクティブに)
+            // ボタンのスタイル更新
             yuzuBtn.style.backgroundColor = 'var(--yt-light-dark)';
             youtubeBtn.style.backgroundColor = 'var(--yt-bg)';
-
-            // YouTube埋め込みが非表示になるので、ストリームURLによる再生を開始
-            // videoElement.play() は不要な場合があるためコメントアウト（`autoplay`属性に依存）
-
+            
+            // YouTube埋め込み側は<iframe>のため、非表示で自動的に再生停止されることを期待
+            
         } else {
             // YouTube埋め込みプレーヤーを表示
             yuzuPlayer.style.display = 'none';
             youtubePlayer.style.display = 'block';
             
-            // ボタンのスタイル更新 (YouTube埋め込みをアクティブに)
+            // ボタンのスタイル更新
             yuzuBtn.style.backgroundColor = 'var(--yt-bg)';
             youtubeBtn.style.backgroundColor = 'var(--yt-light-dark)';
 
-            // ストリームURLによるプレーヤーを非表示にする際、再生を停止
-            if (videoElement) videoElement.pause();
+            // ★ ストリームURLの動画プレーヤーを非表示にする際、再生を一時停止
+            if (videoElement) {
+                videoElement.pause();
+            }
         }
     }
 
