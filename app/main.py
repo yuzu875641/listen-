@@ -10,12 +10,6 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool 
-import logging 
-
-# ロギング設定の初期化
-logging.basicConfig(level=logging.INFO, 
-                    format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates")) 
@@ -27,8 +21,8 @@ def isJSON(json_str):
     except json.JSONDecodeError: return False
 
 # Global Configuration
-max_time = 5.0  
-max_api_wait_time = (1.5, 3.0) 
+max_time = 10.0
+max_api_wait_time = (3.0, 5.0)
 failed = "Load Failed"
 
 invidious_api_data = {
@@ -71,6 +65,7 @@ invidious_api_data = {
 }
 
 class InvidiousAPI:
+    # 修正済み: selfself から self に変更
     def __init__(self):
         self.all = invidious_api_data
         self.video = list(self.all['video']); 
@@ -86,31 +81,22 @@ def requestAPI(path, api_urls):
     Fails over to the next URL on connection error or non-OK response.
     """
     starttime = time.time()
-    logger.info(f"--- Invidious API Request Started for path: {path} ---")
     
     apis_to_try = api_urls
     
     for api in apis_to_try:
-        current_url = api + 'api/v1' + path
         if time.time() - starttime >= max_time - 1:
-            logger.warning(f"Total time limit (max_time - 1 = {max_time - 1:.1f}s) approaching. Aborting further attempts.")
             break
             
         try:
-            logger.info(f"Attempting Invidious instance: {current_url}")
-            res = requests.get(current_url, headers=getRandomUserAgent(), timeout=max_api_wait_time)
+            res = requests.get(api + 'api/v1' + path, headers=getRandomUserAgent(), timeout=max_api_wait_time)
             
             if res.status_code == requests.codes.ok and isJSON(res.text):
-                logger.info(f"SUCCESS: API request to {api} completed in {time.time() - starttime:.2f}s.")
                 return res.text
-            else:
-                logger.warning(f"FAIL: {api} returned status {res.status_code} or non-JSON content. Moving to next instance.")
             
-        except requests.exceptions.RequestException as e:
-            logger.error(f"ERROR: Request to {api} failed due to exception: {type(e).__name__}. Moving to next instance.")
+        except requests.exceptions.RequestException:
             continue
             
-    logger.error(f"FAILURE: All available Invidious API instances failed to respond after {time.time() - starttime:.2f}s.")
     raise APITimeoutError("All available API instances failed to respond.")
 
 def formatSearchData(data_dict, failed="Load Failed"):
@@ -125,18 +111,18 @@ def formatSearchData(data_dict, failed="Load Failed"):
     return {"type": "unknown", "data": data_dict}
 
 async def getVideoData(videoid):
-    logger.info(f"Calling Invidious for video metadata: {videoid}")
     t_text = await run_in_threadpool(requestAPI, f"/videos/{urllib.parse.quote(videoid)}", invidious_api.video)
     t = json.loads(t_text)
     recommended_videos = t.get('recommendedvideo') or t.get('recommendedVideos') or []
     return [{
+        'video_urls': list(reversed([i["url"] for i in t["formatStreams"]]))[:2],
         'description_html': t["descriptionHtml"].replace("\n", "<br>"), 'title': t["title"],
         'length_text': str(datetime.timedelta(seconds=t["lengthSeconds"])), 'author_id': t["authorId"], 'author': t["author"], 'author_thumbnails_url': t["authorThumbnails"][-1]["url"], 'view_count': t["viewCount"], 'like_count': t["likeCount"], 'subscribers_count': t["subCountText"]
     }, [
         {"video_id": i["videoId"], "title": i["title"], "author_id": i["authorId"], "author": i["author"], "length_text": str(datetime.timedelta(seconds=i["lengthSeconds"])), "view_count_text": i["viewCountText"]}
         for i in recommended_videos
     ]]
-
+    
 async def getSearchData(q, page):
     datas_text = await run_in_threadpool(requestAPI, f"/search?q={urllib.parse.quote(q)}&page={page}&hl=jp", invidious_api.search)
     datas_dict = json.loads(datas_text)
@@ -171,53 +157,6 @@ async def getCommentsData(videoid):
     t = json.loads(t_text)["comments"]
     return [{"author": i["author"], "authoricon": i["authorThumbnails"][-1]["url"], "authorid": i["authorId"], "body": i["contentHtml"].replace("\n", "<br>")} for i in t]
 
-# 修正された getPrimaryStreamUrl 関数 (最大15秒タイムアウト)
-async def getPrimaryStreamUrl(videoid):
-    """
-    Fetches the primary video stream URL from the user-specified external API (siawaseok.f5.si).
-    """
-    api_url = f"https://siawaseok.f5.si/api/2/streams/{urllib.parse.quote(videoid)}"
-    logger.info(f"--- Stream API Request Started for video: {videoid} ---")
-    
-    # 修正: タイムアウトを最大約15秒 (接続3秒 + 読み取り12秒) に緩和
-    STREAM_API_TIMEOUT = (3.0, 12.0)
-
-    def fetch_stream_url_sync():
-        try:
-            logger.info(f"Attempting Stream API URL: {api_url}")
-            res = requests.get(api_url, headers=getRandomUserAgent(), timeout=STREAM_API_TIMEOUT)
-            
-            if res.status_code == requests.codes.ok and isJSON(res.text):
-                data = json.loads(res.text)
-                
-                # 'url'キーの抽出
-                result_url = None
-                if isinstance(data, list) and data:
-                    result_url = data[0].get("url")
-                elif isinstance(data, dict):
-                    result_url = data.get("url")
-                
-                if result_url:
-                    logger.info(f"SUCCESS: Stream URL found. Starts with: {result_url[:40]}...")
-                    return result_url
-                else:
-                    logger.error(f"ERROR: Stream API returned JSON but no 'url' key was found.")
-                    return None
-            else:
-                logger.error(f"ERROR: Stream API returned status {res.status_code} or non-JSON content.")
-                return None
-            
-        except requests.exceptions.RequestException as e:
-            logger.error(f"ERROR: Stream API request failed due to exception (Timeout/Connection): {type(e).__name__}")
-            return None
-
-    # スレッドプールで実行
-    result_url = await run_in_threadpool(fetch_stream_url_sync)
-    
-    final_url = result_url if result_url else failed
-    logger.info(f"--- Stream API Request Finished. Result: {final_url[:20]}... ---")
-    return final_url
-
 
 # FastAPI Application
 app = FastAPI()
@@ -237,45 +176,11 @@ async def home(request: Request, proxy: Union[str] = Cookie(None)):
         "proxy": proxy
     })
 
-# Modified route with logging and error handling
 @app.get('/watch', response_class=HTMLResponse)
 async def video(v:str, request: Request, proxy: Union[str] = Cookie(None)):
-    logger.info(f"\n======== START PROCESSING VIDEO: {v} ========")
-    
-    # 1. Fetch the primary video stream URL
-    primary_stream_url = await getPrimaryStreamUrl(v)
-    
-    # 2. Fetch the metadata from Invidious (with error handling for critical failure)
-    try:
-        video_data = await getVideoData(v)
-    except APITimeoutError:
-        logger.critical(f"CRITICAL: Failed to get Invidious metadata for {v} due to timeout.")
-        # Provide fallback data so the template doesn't crash
-        video_data = [{"description_html": failed, "title": failed, "author": failed, "author_thumbnails_url": "", "view_count": failed, "like_count": failed, "subscribers_count": failed, "length_text": failed, "author_id": ""}, []]
-    
-    # Final result logging
-    if primary_stream_url != failed:
-        logger.info(f"RESULT: Successfully retrieved stream URL and metadata for {v}.")
-    else:
-        logger.error(f"RESULT: Failed to retrieve stream URL for {v}.")
-    
-    logger.info(f"======== END PROCESSING VIDEO: {v} ========\n")
-
+    video_data = await getVideoData(v)
     return templates.TemplateResponse('video.html', {
-        "request": request, 
-        "videoid": v, 
-        "videourls": [primary_stream_url],
-        "description": video_data[0]['description_html'], 
-        "video_title": video_data[0]['title'], 
-        "author_id": video_data[0]['author_id'], 
-        "author_icon": video_data[0]['author_thumbnails_url'], 
-        "author": video_data[0]['author'], 
-        "length_text": video_data[0]['length_text'], 
-        "view_count": video_data[0]['view_count'], 
-        "like_count": video_data[0]['like_count'], 
-        "subscribers_count": video_data[0]['subscribers_count'], 
-        "recommended_videos": video_data[1], 
-        "proxy":proxy
+        "request": request, "videoid": v, "videourls": video_data[0]['video_urls'], "description": video_data[0]['description_html'], "video_title": video_data[0]['title'], "author_id": video_data[0]['author_id'], "author_icon": video_data[0]['author_thumbnails_url'], "author": video_data[0]['author'], "length_text": video_data[0]['length_text'], "view_count": video_data[0]['view_count'], "like_count": video_data[0]['like_count'], "subscribers_count": video_data[0]['subscribers_count'], "recommended_videos": video_data[1], "proxy":proxy
     })
 
 @app.get("/search", response_class=HTMLResponse)
