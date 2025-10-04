@@ -45,13 +45,10 @@
         </div>
 
         <div id="comments-container" style="margin-top: 24px; padding: 16px; background-color: var(--yt-light-dark); border-radius: 8px;">
-            <button id="load-comments-button" 
-                    onclick="loadComments('{{ videoid }}')"
-                    style="width: 100%; padding: 10px; background-color: var(--yt-separator); color: var(--yt-text); border: none; border-radius: 4px; font-weight: bold; cursor: pointer; transition: background-color 0.2s;">
-                コメントを読み込む
-            </button>
-            <div id="comment-list" style="margin-top: 16px;">
-                </div>
+            <h2 style="font-size: 20px; margin-bottom: 16px;">コメント</h2>
+            <div id="comment-list" style="color: var(--yt-sub-text);">
+                コメントを読み込み中...
+            </div>
         </div>
     </div>
 
@@ -75,16 +72,9 @@
 <script>
     function loadComments(videoId) {
         const commentList = document.getElementById('comment-list');
-        const button = document.getElementById('load-comments-button');
         
-        // 既にロードされていたら何もしない
-        if (commentList.getAttribute('data-loaded') === 'true') {
-            return;
-        }
-
-        button.disabled = true;
-        button.textContent = 'コメントを読み込み中...';
-        button.style.backgroundColor = 'var(--yt-separator)'; 
+        // ローディング表示に切り替える（ここでは初期表示として既に設定済み）
+        commentList.innerHTML = '<div style="color: var(--yt-sub-text);">コメントを読み込み中...</div>';
         
         // /comments?v=<videoid> エンドポイントからHTMLフラグメントをフェッチ
         fetch(`/comments?v=${videoId}`)
@@ -97,17 +87,15 @@
             .then(html => {
                 // 取得したHTML (comments.htmlの内容) をコンテナに挿入
                 commentList.innerHTML = html;
-                commentList.setAttribute('data-loaded', 'true');
-                button.remove(); // ロードが完了したらボタンを削除
             })
             .catch(error => {
                 console.error('コメントのロード中にエラーが発生:', error);
                 commentList.innerHTML = '<div style="color: red; padding: 10px;">コメントの読み込み中にエラーが発生しました。</div>';
-                button.textContent = 'コメントの読み込みに失敗';
-                button.style.backgroundColor = 'red';
-                button.disabled = false;
             });
     }
+
+    // ★ ページロード時にコメントを自動で読み込む
+    loadComments('{{ videoid }}');
 
 </script>
 {% endblock %}
