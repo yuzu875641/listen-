@@ -3,7 +3,7 @@ import time
 import requests
 import datetime
 import urllib.parse
-from pathlib import Path  # ★ 新規追加
+from pathlib import Path 
 from typing import Union
 from fastapi import FastAPI, Response, Request, Cookie
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -14,58 +14,102 @@ from starlette.concurrency import run_in_threadpool
 # ----------------------------------------------------
 # 設定とユーティリティ
 # ----------------------------------------------------
-# Vercel環境でパスが正しく解決されるようにPathlibを使用
-# main.pyは /app/main.py にあると仮定し、BASE_DIRはプロジェクトルートを指します
 BASE_DIR = Path(__file__).resolve().parent.parent
-
-# テンプレートエンジンとディレクトリの設定
-templates = Jinja2Templates(directory=str(BASE_DIR / "templates")) # ★ パス修正
+templates = Jinja2Templates(directory=str(BASE_DIR / "templates")) 
 
 class APITimeoutError(Exception): pass
 def getRandomUserAgent(): return {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/94.0.4606.61 Safari/537.36'}
 def isJSON(json_str):
     try: json.loads(json_str); return True
     except json.JSONDecodeError: return False
-def updateList(list_obj, str_val): 
-    try: list_obj.remove(str_val)
-    except ValueError: pass
-    return list_obj
+# updateList 関数は、ここでは使われていないか、またはrequestAPI内で直接リストを操作する方がシンプルなので省略します。
+
 
 # グローバル変数 (設定値)
 max_time = 10.0
 max_api_wait_time = (3.0, 5.0)
 failed = "Load Failed"
 
-# ユーザー指定の Invidious APIリスト
 invidious_api_data = {
-    'video': ['https://yt.omada.cafe/'], 
-    'playlist': ['https://iv.melmac.space/'], 
-    'search': ['https://iv.melmac.space/'], 
-    'channel': ['https://iv.melmac.space/'], 
-    'comments': ['https://iv.melmac.space/']
+    'video': [
+        'https://yt.omada.cafe/',
+        'https://iv.melmac.space/', 
+    ], 
+    'playlist': [
+        'https://invidious.ducks.party/',
+        'https://super8.absturztau.be/',
+        'https://invidious.nikkosphere.com/',
+        'https://invidious.ducks.party/',
+        'https://yt.omada.cafe/',
+        'https://iv.melmac.space/',
+    ], 
+    'search': [
+        'https://invidious.ducks.party/',
+        'https://super8.absturztau.be/',
+        'https://invidious.nikkosphere.com/',
+        'https://invidious.ducks.party/',
+        'https://yt.omada.cafe/',
+        'https://iv.melmac.space/',
+    ], 
+    'channel': [
+        'https://invidious.ducks.party/',
+        'https://super8.absturztau.be/',
+        'https://invidious.nikkosphere.com/',
+        'https://invidious.ducks.party/',
+        'https://yt.omada.cafe/',
+        'https://iv.melmac.space/',
+    ], 
+    'comments': [
+        'https://invidious.ducks.party/',
+        'https://super8.absturztau.be/',
+        'https://invidious.nikkosphere.com/',
+        'https://invidious.ducks.party/',
+        'https://yt.omada.cafe/',
+        'https://iv.melmac.space/',
+    ]
 }
 
 class InvidiousAPI:
     def __init__(self):
         self.all = invidious_api_data
-        self.video = self.all['video']; self.playlist = self.all['playlist']
-        self.search = self.all['search']; self.channel = self.all['channel']
-        self.comments = self.all['comments']; self.check_video = False
+        self.video = list(self.all['video']); 
+        self.playlist = list(self.all['playlist']);
+        self.search = list(self.all['search']); 
+        self.channel = list(self.all['channel']);
+        self.comments = list(self.all['comments']); 
+        self.check_video = False
 
 def requestAPI(path, api_urls):
-    """同期的にAPIリクエストを行う (スレッドプールで実行される)"""
+    """
+    APIリクエストを行う (スレッドプールで実行される)
+    リスト内のURLを定義された順序で試行する。
+    """
     starttime = time.time()
-    for api in api_urls:
-        if time.time() - starttime >= max_time - 1: break
+    
+    # ★ 改善: シャッフルせずに、定義された順序 (api_urls) でループする
+    apis_to_try = api_urls
+    
+    for api in apis_to_try:
+        # タイムアウトに近づいたらループを抜ける
+        if time.time() - starttime >= max_time - 1:
+            break
+            
         try:
             res = requests.get(api + 'api/v1' + path, headers=getRandomUserAgent(), timeout=max_api_wait_time)
-            if res.status_code == requests.codes.ok and isJSON(res.text): return res.text
-            else: updateList(api_urls, api)
-        except: updateList(api_urls, api)
-    raise APITimeoutError("APIがタイムアウトしました")
+            
+            # ステータスコードがOKでJSONとしてパース可能であれば成功
+            if res.status_code == requests.codes.ok and isJSON(res.text):
+                return res.text
+            
+        except requests.exceptions.RequestException:
+            # 接続エラーやタイムアウトが発生した場合、次を試す
+            continue
+            
+    # 全てのAPIインスタンスが失敗した場合
+    raise APITimeoutError("利用可能な全てのAPIインスタンスがタイムアウトしました。")
 
+# (以降の関数定義は変更なし)
 def formatSearchData(data_dict, failed="Load Failed"):
-    """検索/トレンドAPIの結果をテンプレート用に整形するヘルパー関数 (独立)"""
     if data_dict["type"] == "video": 
         return {"type": "video", "title": data_dict.get("title", failed), "id": data_dict.get("videoId", failed), "author": data_dict.get("author", failed), "published": data_dict.get("publishedText", failed), "length": str(datetime.timedelta(seconds=data_dict.get("lengthSeconds", 0))), "view_count_text": data_dict.get("viewCountText", failed)}
     elif data_dict["type"] == "playlist": 
@@ -76,8 +120,7 @@ def formatSearchData(data_dict, failed="Load Failed"):
         return {"type": "channel", "author": data_dict.get("author", failed), "id": data_dict.get("authorId", failed), "thumbnail": thumbnail}
     return {"type": "unknown", "data": data_dict}
 
-# --- 非同期データ取得関数 ---
-
+# --- 非同期データ取得関数 (変更なし) ---
 async def getVideoData(videoid):
     t_text = await run_in_threadpool(requestAPI, f"/videos/{urllib.parse.quote(videoid)}", invidious_api.video)
     t = json.loads(t_text)
@@ -97,7 +140,6 @@ async def getSearchData(q, page):
     return [formatSearchData(data_dict) for data_dict in datas_dict]
 
 async def getTrendingData(region: str):
-    """指定された地域 (region) のトレンド動画を取得する"""
     path = f"/trending?region={region}&hl=jp"
     datas_text = await run_in_threadpool(requestAPI, path, invidious_api.search)
     datas_dict = json.loads(datas_text)
@@ -133,7 +175,6 @@ async def getCommentsData(videoid):
 app = FastAPI()
 invidious_api = InvidiousAPI() 
 
-# ★ 修正: StaticFilesのdirectoryをPathlibを使って絶対パスで指定
 app.mount(
     "/static", 
     StaticFiles(directory=str(BASE_DIR / "static")), 
@@ -143,7 +184,6 @@ app.mount(
 
 @app.get('/', response_class=HTMLResponse)
 async def home(request: Request, proxy: Union[str] = Cookie(None)):
-    """index.htmlが見つからないエラーを回避し、search.htmlを空の結果で表示する"""
     return templates.TemplateResponse("search.html", {
         "request": request, 
         "results": [],
