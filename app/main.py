@@ -10,7 +10,6 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool 
-import ytpb
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates")) 
@@ -100,7 +99,7 @@ def requestAPI(path, api_urls):
     raise APITimeoutError("All available API instances failed to respond.")
 
 def formatSearchData(data_dict, failed="Load Failed"):
-    # 修正: "live"タイプのチェックを削除し、従来の"video"のみを対象とする
+    # "live"タイプのチェックを削除し、従来の"video"のみを対象とする
     if data_dict["type"] == "video": 
         return {"type": "video", 
                 "title": data_dict.get("title", failed), 
@@ -117,20 +116,6 @@ def formatSearchData(data_dict, failed="Load Failed"):
         return {"type": "channel", "author": data_dict.get("author", failed), "id": data_dict.get("authorId", failed), "thumbnail": thumbnail}
     return {"type": "unknown", "data": data_dict}
 
-# ytpbを使ってライブストリームのHLS/DASHマニフェストURLを取得する関数 (再生のために維持)
-def get_ytpb_live_stream_url(videoid):
-    """ytpbを使ってライブストリームのHLS/DASHマニフェストURLを取得する"""
-    try:
-        # YouTubeのURLからストリームオブジェクトを作成
-        stream = ytpb.Stream(f"https://www.youtube.com/watch?v={videoid}")
-        
-        # HLS/DASHマニフェストURLを取得 (ライブ配信で使われるURL)
-        manifest_url = stream.get_manifest_url()
-        return manifest_url
-    except Exception as e:
-        # ライブ動画ではない、または取得失敗
-        print(f"ytpb error for {videoid}: {e}")
-        return None
 
 async def getVideoData(videoid):
     failed = "Load Failed"
@@ -148,7 +133,7 @@ async def getVideoData(videoid):
     # Invidiousのレスポンスからライブ情報を確認
     is_live = t.get('isLive', False)
 
-    # 1. InvidiousがHLS URLを返している場合、それを採用 (Invidiousでのライブストリーム)
+    # 1. InvidiousがHLS URLを返している場合、それを採用 (ライブストリーム)
     if 'hlsUrl' in t and t['hlsUrl']:
         video_urls = [t['hlsUrl']]
         
@@ -156,13 +141,6 @@ async def getVideoData(videoid):
     elif t.get("formatStreams"):
         video_urls = list(reversed([i["url"] for i in t["formatStreams"]]))[:2]
     
-    # 3. ライブ動画である、またはストリームURLが取得できなかった場合、ytpbをフォールバックとして試行
-    if is_live and not video_urls:
-        # ytpbはブロッキング操作を含むため、スレッドプールで実行
-        live_url = await run_in_threadpool(get_ytpb_live_stream_url, videoid)
-        if live_url:
-            video_urls = [live_url]
-
     # ライブ動画のデータ形式を調整
     if is_live:
         length_text = 'LIVE'
