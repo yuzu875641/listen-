@@ -64,11 +64,16 @@
             <p style="white-space: pre-wrap;">{{ description | safe }}</p>
         </div>
 
-        <div id="comments-container" style="margin-top: 24px; padding: 16px; background-color: var(--yt-light-dark); border-radius: 8px;">
+        <div id="comments-container" data-current-offset="0" style="margin-top: 24px; padding: 16px; background-color: var(--yt-light-dark); border-radius: 8px;">
             <h2 style="font-size: 20px; margin-bottom: 16px;">コメント</h2>
             <div id="comment-list" style="color: var(--yt-sub-text);">
                 コメントを読み込み中...
             </div>
+            
+            <button id="load-more-comments" onclick="loadMore('{{ videoid }}', 50)" 
+                style="display: none; width: 100%; padding: 10px; margin-top: 15px; cursor: pointer; border: 1px solid var(--yt-sub-text); color: var(--yt-text); background-color: var(--yt-light-dark);">
+                もっと読み込む (+50)
+            </button>
         </div>
     </div>
 
@@ -90,14 +95,32 @@
 </div>
 
 <script>
-    function loadComments(videoId) {
+    const COMMENTS_PER_LOAD = 50; // 一度にロードするコメント数
+    
+    /**
+     * 指定されたオフセットとリミットでコメントを取得し、リストに追加する
+     * @param {string} videoId - 動画ID
+     * @param {number} offset - 取得を開始する位置 (スキップするコメント数)
+     * @param {number} limit - 取得するコメントの最大数
+     */
+    function loadComments(videoId, offset, limit) {
         const commentList = document.getElementById('comment-list');
+        const commentsContainer = document.getElementById('comments-container');
+        const loadMoreButton = document.getElementById('load-more-comments');
         
-        // ローディング表示に切り替える（ここでは初期表示として既に設定済み）
-        commentList.innerHTML = '<div style="color: var(--yt-sub-text);">コメントを読み込み中...</div>';
+        // 初回ロード時以外はローディング表示に切り替える
+        if (offset === 0) {
+            commentList.innerHTML = '<div style="color: var(--yt-sub-text);">コメントを読み込み中...</div>';
+            loadMoreButton.style.display = 'none'; // 初回ロード中はボタンを非表示
+        } else {
+            loadMoreButton.textContent = '読み込み中...';
+            loadMoreButton.disabled = true;
+        }
         
-        // /comments?v=<videoid> エンドポイントからHTMLフラグメントをフェッチ
-        fetch(`/comments?v=${videoId}`)
+        // /comments?v=<videoid>&offset=<offset>&limit=<limit> の形式でリクエスト
+        const url = `/comments?v=${videoId}&offset=${offset}&limit=${limit}`;
+
+        fetch(url)
             .then(response => {
                 if (!response.ok) {
                     throw new Error('コメントの読み込みに失敗しました。');
@@ -105,13 +128,57 @@
                 return response.text();
             })
             .then(html => {
-                // 取得したHTML (comments.htmlの内容) をコンテナに挿入
-                commentList.innerHTML = html;
+                // 取得したHTMLを一時的なコンテナに格納
+                const tempDiv = document.createElement('div');
+                tempDiv.innerHTML = html;
+                
+                // コメント要素を抽出
+                const newComments = tempDiv.querySelectorAll('#comment-list > *'); 
+                
+                if (offset === 0) {
+                    // 初回ロード: 既存のコメントリストを置き換える
+                    commentList.innerHTML = '';
+                }
+
+                // 新しいコメントをリストに追加
+                newComments.forEach(comment => {
+                    commentList.appendChild(comment);
+                });
+
+                // オフセットを更新
+                const newOffset = offset + newComments.length;
+                commentsContainer.setAttribute('data-current-offset', newOffset);
+
+                // ロードされたコメント数がリミットに満たない場合は、すべてのコメントを読み込んだと判断
+                if (newComments.length < limit) {
+                    loadMoreButton.style.display = 'none';
+                } else {
+                    loadMoreButton.style.display = 'block';
+                    loadMoreButton.textContent = `読み込む (+${COMMENTS_PER_LOAD})`;
+                    loadMoreButton.disabled = false;
+                }
             })
             .catch(error => {
                 console.error('コメントのロード中にエラーが発生:', error);
-                commentList.innerHTML = '<div style="color: red; padding: 10px;">コメントの読み込み中にエラーが発生しました。</div>';
+                if (offset === 0) {
+                    commentList.innerHTML = '<div style="color: red; padding: 10px;">コメントの読み込み中にエラーが発生しました。</div>';
+                } else {
+                    loadMoreButton.textContent = '読み込みエラー';
+                }
+                loadMoreButton.disabled = false;
             });
+    }
+    
+    /**
+     * 「もっと読み込む」ボタンがクリックされたときに呼ばれる関数
+     * @param {string} videoId - 動画ID
+     * @param {number} limit - 追加で読み込むコメント数
+     */
+    function loadMore(videoId, limit) {
+        const commentsContainer = document.getElementById('comments-container');
+        const currentOffset = parseInt(commentsContainer.getAttribute('data-current-offset') || '0', 10);
+        
+        loadComments(videoId, currentOffset, limit);
     }
 
     /**
@@ -123,38 +190,32 @@
         const youtubePlayer = document.getElementById('youtube-embed-player');
         const yuzuBtn = document.getElementById('yuzu-btn');
         const youtubeBtn = document.getElementById('youtube-btn');
-        // ストリームURLの動画要素を取得
         const videoElement = yuzuPlayer.querySelector('video'); 
 
         if (playerId === 'yuzutube-player') {
-            // ストリームURLによるプレーヤーを表示
             yuzuPlayer.style.display = 'block';
             youtubePlayer.style.display = 'none';
             
-            // ボタンのスタイル更新
             yuzuBtn.style.backgroundColor = 'var(--yt-light-dark)';
             youtubeBtn.style.backgroundColor = 'var(--yt-bg)';
             
-            // YouTube埋め込み側は<iframe>のため、非表示で自動的に再生停止されることを期待
-            
         } else {
-            // YouTube埋め込みプレーヤーを表示
-            yuzuPlayer.style.display = 'none';
             youtubePlayer.style.display = 'block';
+            yuzuPlayer.style.display = 'none';
             
-            // ボタンのスタイル更新
             yuzuBtn.style.backgroundColor = 'var(--yt-bg)';
             youtubeBtn.style.backgroundColor = 'var(--yt-light-dark)';
 
-            // ★ ストリームURLの動画プレーヤーを非表示にする際、再生を一時停止
+            // ストリームURLの動画プレーヤーを非表示にする際、再生を一時停止
             if (videoElement) {
                 videoElement.pause();
             }
         }
     }
 
-    // ★ ページロード時にコメントを自動で読み込む
-    loadComments('{{ videoid }}');
+    // ★ ページロード時にコメントを自動で読み込む (初期 50個)
+    // バックエンドの /comments エンドポイントが `offset` と `limit` パラメータを受け付ける必要があります。
+    loadComments('{{ videoid }}', 0, COMMENTS_PER_LOAD); 
 
 </script>
 {% endblock %}
