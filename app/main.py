@@ -215,3 +215,10 @@ def thumbnail(v:str):
 def suggest(keyword:str):
     res_text = requests.get("http://www.google.com/complete/search?client=youtube&hl=ja&ds=yt&q=" + urllib.parse.quote(keyword), headers=getRandomUserAgent()).text
     return [i[0] for i in json.loads(res_text[19:-1])[1]]
+    
+@app.get("/setting", response_class=HTMLResponse)
+async def setting(request: Request, proxy: Union[str] = Cookie(None)):
+    return templates.TemplateResponse("setting.html", {
+        "request": request, 
+        "proxy": proxy
+    })
