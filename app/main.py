@@ -21,8 +21,8 @@ def isJSON(json_str):
     except json.JSONDecodeError: return False
 
 # Global Configuration
-max_time = 10.0
-max_api_wait_time = (3.0, 5.0)
+max_time = 20.0
+max_api_wait_time = (3.0, 7.0)
 failed = "Load Failed"
 
 invidious_api_data = {
@@ -101,10 +101,11 @@ def requestAPI(path, api_urls):
 def fetch_custom_stream_url(videoid):
     """
     Fetches the stream URL from the custom siawaseok.f5.si API,
-    specifically looking for the format with itag '93'.
+    specifically looking for the format with itag '95' (HLS stream).
     """
     url = f"https://siawaseok.f5.si/api/2/streams/{urllib.parse.quote(videoid)}"
-    TARGET_ITAG = "93"
+    # itagを '93' から '95' に変更
+    TARGET_ITAG = "95"
     
     try:
         res = requests.get(url, headers=getRandomUserAgent(), timeout=max_api_wait_time)
@@ -113,14 +114,14 @@ def fetch_custom_stream_url(videoid):
         if isJSON(res.text):
             data = res.json()
             
-            # formatsリスト内のitag '93'を探し、対応するURLを返す
+            # formatsリスト内のitag '95'を探し、対応するURLを返す
             if 'formats' in data and isinstance(data.get('formats'), list):
                 for format_item in data['formats']:
                     if str(format_item.get('itag', '')) == TARGET_ITAG and 'url' in format_item:
                         print(f"Custom API: Found URL for itag '{TARGET_ITAG}'")
                         return format_item['url']
             
-            print(f"Custom API: itag '{TARGET_ITAG}' の URL は見つかりませんでした。")
+            print(f"Custom API: itag '{TARGET_ITAG}' の URL は見つかりませんでした。Invidiousにフォールバックします。")
             return None
         else:
             print(f"Custom API returned non-JSON response for {videoid}.")
@@ -148,7 +149,7 @@ async def getVideoData(videoid):
     t_text = await run_in_threadpool(requestAPI, f"/videos/{urllib.parse.quote(videoid)}", invidious_api.video)
     t = json.loads(t_text)
     
-    # ★ カスタムAPIからストリームURLを取得 ★
+    # カスタムAPIからストリームURLを取得
     custom_stream_url = await run_in_threadpool(fetch_custom_stream_url, videoid)
     
     video_urls_list = []
@@ -163,7 +164,7 @@ async def getVideoData(videoid):
     recommended_videos = t.get('recommendedvideo') or t.get('recommendedVideos') or []
     
     return [{
-        'video_urls': video_urls_list, # ★ ここで取得したURLリストがテンプレートに渡される ★
+        'video_urls': video_urls_list,
         'description_html': t["descriptionHtml"].replace("\n", "<br>"), 'title': t["title"],
         'length_text': str(datetime.timedelta(seconds=t["lengthSeconds"])), 'author_id': t["authorId"], 'author': t["author"], 'author_thumbnails_url': t["authorThumbnails"][-1]["url"], 'view_count': t["viewCount"], 'like_count': t["likeCount"], 'subscribers_count': t["subCountText"]
     }, [
@@ -226,7 +227,6 @@ async def home(request: Request, proxy: Union[str] = Cookie(None)):
 
 @app.get('/watch', response_class=HTMLResponse)
 async def video(v:str, request: Request, proxy: Union[str] = Cookie(None)):
-    # ★ getVideoDataがカスタムAPIのURLを取得して返します ★
     video_data = await getVideoData(v)
     return templates.TemplateResponse('video.html', {
         "request": request, "videoid": v, "videourls": video_data[0]['video_urls'], "description": video_data[0]['description_html'], "video_title": video_data[0]['title'], "author_id": video_data[0]['author_id'], "author_icon": video_data[0]['author_thumbnails_url'], "author": video_data[0]['author'], "length_text": video_data[0]['length_text'], "view_count": video_data[0]['view_count'], "like_count": video_data[0]['like_count'], "subscribers_count": video_data[0]['subscribers_count'], "recommended_videos": video_data[1], "proxy":proxy
