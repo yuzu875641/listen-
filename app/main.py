@@ -10,6 +10,12 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool 
+import logging # Logging module added
+
+# Logging setup initialization
+logging.basicConfig(level=logging.INFO, 
+                    format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates")) 
@@ -20,9 +26,9 @@ def isJSON(json_str):
     try: json.loads(json_str); return True
     except json.JSONDecodeError: return False
 
-# Global Configuration
-max_time = 20.0
-max_api_wait_time = (10.0, 5.0)
+# Global Configuration (STRICT TIMEOUTS APPLIED)
+max_time = 5.0  # Reduced to 5.0 seconds total attempt time
+max_api_wait_time = (1.5, 3.0) # Reduced per-request connection/read time
 failed = "Load Failed"
 
 invidious_api_data = {
@@ -74,28 +80,38 @@ class InvidiousAPI:
         self.comments = list(self.all['comments']); 
         self.check_video = False
 
+# Function with detailed logging
 def requestAPI(path, api_urls):
     """
     Sequentially attempts API requests using the provided list of URLs.
     Fails over to the next URL on connection error or non-OK response.
     """
     starttime = time.time()
+    logger.info(f"--- Invidious API Request Started for path: {path} ---")
     
     apis_to_try = api_urls
     
     for api in apis_to_try:
+        current_url = api + 'api/v1' + path
         if time.time() - starttime >= max_time - 1:
+            logger.warning(f"Total time limit (max_time - 1 = {max_time - 1:.1f}s) approaching. Aborting further attempts.")
             break
             
         try:
-            res = requests.get(api + 'api/v1' + path, headers=getRandomUserAgent(), timeout=max_api_wait_time)
+            logger.info(f"Attempting Invidious instance: {current_url}")
+            res = requests.get(current_url, headers=getRandomUserAgent(), timeout=max_api_wait_time)
             
             if res.status_code == requests.codes.ok and isJSON(res.text):
+                logger.info(f"SUCCESS: API request to {api} completed in {time.time() - starttime:.2f}s.")
                 return res.text
+            else:
+                logger.warning(f"FAIL: {api} returned status {res.status_code} or non-JSON content. Moving to next instance.")
             
-        except requests.exceptions.RequestException:
+        except requests.exceptions.RequestException as e:
+            logger.error(f"ERROR: Request to {api} failed due to exception: {type(e).__name__}. Moving to next instance.")
             continue
             
+    logger.error(f"FAILURE: All available Invidious API instances failed to respond after {time.time() - starttime:.2f}s.")
     raise APITimeoutError("All available API instances failed to respond.")
 
 def formatSearchData(data_dict, failed="Load Failed"):
@@ -109,12 +125,11 @@ def formatSearchData(data_dict, failed="Load Failed"):
         return {"type": "channel", "author": data_dict.get("author", failed), "id": data_dict.get("authorId", failed), "thumbnail": thumbnail}
     return {"type": "unknown", "data": data_dict}
 
-# ========== MODIFIED/CLEANED FUNCTION ==========
 async def getVideoData(videoid):
+    logger.info(f"Calling Invidious for video metadata: {videoid}")
     t_text = await run_in_threadpool(requestAPI, f"/videos/{urllib.parse.quote(videoid)}", invidious_api.video)
     t = json.loads(t_text)
     recommended_videos = t.get('recommendedvideo') or t.get('recommendedVideos') or []
-    # NOTE: 'video_urls' is removed from this dictionary as it is now fetched by getPrimaryStreamUrl
     return [{
         'description_html': t["descriptionHtml"].replace("\n", "<br>"), 'title': t["title"],
         'length_text': str(datetime.timedelta(seconds=t["lengthSeconds"])), 'author_id': t["authorId"], 'author': t["author"], 'author_thumbnails_url': t["authorThumbnails"][-1]["url"], 'view_count': t["viewCount"], 'like_count': t["likeCount"], 'subscribers_count': t["subCountText"]
@@ -122,7 +137,6 @@ async def getVideoData(videoid):
         {"video_id": i["videoId"], "title": i["title"], "author_id": i["authorId"], "author": i["author"], "length_text": str(datetime.timedelta(seconds=i["lengthSeconds"])), "view_count_text": i["viewCountText"]}
         for i in recommended_videos
     ]]
-# ===============================================
 
 async def getSearchData(q, page):
     datas_text = await run_in_threadpool(requestAPI, f"/search?q={urllib.parse.quote(q)}&page={page}&hl=jp", invidious_api.search)
@@ -159,38 +173,52 @@ async def getCommentsData(videoid):
     return [{"author": i["author"], "authoricon": i["authorThumbnails"][-1]["url"], "authorid": i["authorId"], "body": i["contentHtml"].replace("\n", "<br>")} for i in t]
 
 
-# ========== NEW FUNCTION ADDED ==========
+# Function with detailed logging and specific timeout
 async def getPrimaryStreamUrl(videoid):
     """
     Fetches the primary video stream URL from the user-specified external API (siawaseok.f5.si).
     """
     api_url = f"https://siawaseok.f5.si/api/2/streams/{urllib.parse.quote(videoid)}"
+    logger.info(f"--- Stream API Request Started for video: {videoid} ---")
     
+    # Specific, strict timeout for the new stream API
+    STREAM_API_TIMEOUT = (3.0, 2.0)
+
     def fetch_stream_url_sync():
         try:
-            res = requests.get(api_url, headers=getRandomUserAgent(), timeout=max_api_wait_time)
+            logger.info(f"Attempting Stream API URL: {api_url}")
+            res = requests.get(api_url, headers=getRandomUserAgent(), timeout=STREAM_API_TIMEOUT)
             
             if res.status_code == requests.codes.ok and isJSON(res.text):
                 data = json.loads(res.text)
                 
-                # Check if data is a list and take the first element's url, 
-                # or if it's a dict, take its url.
+                # Extract 'url' key
+                result_url = None
                 if isinstance(data, list) and data:
-                    return data[0].get("url")
+                    result_url = data[0].get("url")
                 elif isinstance(data, dict):
-                    return data.get("url")
+                    result_url = data.get("url")
+                
+                if result_url:
+                    logger.info(f"SUCCESS: Stream URL found. Starts with: {result_url[:40]}...")
+                    return result_url
+                else:
+                    logger.error(f"ERROR: Stream API returned JSON but no 'url' key was found.")
+                    return None
+            else:
+                logger.error(f"ERROR: Stream API returned status {res.status_code} or non-JSON content.")
+                return None
             
-        except requests.exceptions.RequestException:
-            pass # Continue to return None/failed URL on request failure
-            
-        return None # Return None on failure to distinguish from successful fetch
+        except requests.exceptions.RequestException as e:
+            logger.error(f"ERROR: Stream API request failed due to exception (Timeout/Connection): {type(e).__name__}")
+            return None
 
-    # Run the synchronous fetch in a thread pool
+    # Run in thread pool
     result_url = await run_in_threadpool(fetch_stream_url_sync)
     
-    # Return the result_url or the failed string
-    return result_url if result_url else failed 
-# ========================================
+    final_url = result_url if result_url else failed
+    logger.info(f"--- Stream API Request Finished. Result: {final_url[:20]}... ---")
+    return final_url
 
 
 # FastAPI Application
@@ -211,19 +239,34 @@ async def home(request: Request, proxy: Union[str] = Cookie(None)):
         "proxy": proxy
     })
 
-# ========== MODIFIED ROUTE ==========
+# Modified route with logging and error handling
 @app.get('/watch', response_class=HTMLResponse)
 async def video(v:str, request: Request, proxy: Union[str] = Cookie(None)):
-    # 1. Fetch the primary video stream URL from the new external API
+    logger.info(f"\n======== START PROCESSING VIDEO: {v} ========")
+    
+    # 1. Fetch the primary video stream URL
     primary_stream_url = await getPrimaryStreamUrl(v)
     
-    # 2. Fetch the metadata (title, description, recommended videos, etc.) from Invidious
-    video_data = await getVideoData(v)
+    # 2. Fetch the metadata from Invidious (with error handling for critical failure)
+    try:
+        video_data = await getVideoData(v)
+    except APITimeoutError:
+        logger.critical(f"CRITICAL: Failed to get Invidious metadata for {v} due to timeout.")
+        # Provide fallback data so the template doesn't crash
+        video_data = [{"description_html": failed, "title": failed, "author": failed, "author_thumbnails_url": "", "view_count": failed, "like_count": failed, "subscribers_count": failed, "length_text": failed, "author_id": ""}, []]
     
+    # Final result logging
+    if primary_stream_url != failed:
+        logger.info(f"RESULT: Successfully retrieved stream URL and metadata for {v}.")
+    else:
+        logger.error(f"RESULT: Failed to retrieve stream URL for {v}.")
+    
+    logger.info(f"======== END PROCESSING VIDEO: {v} ========\n")
+
     return templates.TemplateResponse('video.html', {
         "request": request, 
         "videoid": v, 
-        "videourls": [primary_stream_url], # MODIFIED: Using the new primary stream URL as a list
+        "videourls": [primary_stream_url],
         "description": video_data[0]['description_html'], 
         "video_title": video_data[0]['title'], 
         "author_id": video_data[0]['author_id'], 
@@ -236,7 +279,6 @@ async def video(v:str, request: Request, proxy: Union[str] = Cookie(None)):
         "recommended_videos": video_data[1], 
         "proxy":proxy
     })
-# ====================================
 
 @app.get("/search", response_class=HTMLResponse)
 async def search(q:str, request: Request, page:Union[int, None]=1, proxy: Union[str] = Cookie(None)):
