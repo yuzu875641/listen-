@@ -5,16 +5,18 @@ import datetime
 import urllib.parse
 from pathlib import Path 
 from typing import Union
-from fastapi import FastAPI, Response, Request, Cookie, Form # Form imported here
+from fastapi import FastAPI, Response, Request, Cookie, Form 
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool 
 
+# --- CORRECTION APPLIED HERE ---
+# Assuming main.py is in 'app/' and BASE_DIR is intended to be the project root
 BASE_DIR = Path(__file__).resolve().parent.parent
-# Note: Jinja2Templates directory depends on how the host environment mounts templates and static files.
-# Assuming 'templates' is a sibling of the directory containing main.py for this structure.
-templates = Jinja2Templates(directory=str(BASE_DIR.parent / "templates")) 
+# TEMPLATES PATH CORRECTION: Use BASE_DIR directly if 'templates' is a sibling of 'app'
+templates = Jinja2Templates(directory=str(BASE_DIR / "templates")) 
+# ------------------------------
 
 class APITimeoutError(Exception): pass
 def getRandomUserAgent(): return {'User-Agent': 'Mozilla/50 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/94.0.4606.61 Safari/537.36'}
@@ -164,12 +166,14 @@ async def getCommentsData(videoid):
 app = FastAPI()
 invidious_api = InvidiousAPI() 
 
-# Note: Adjusting the StaticFiles directory path based on common project structure
+# --- CORRECTION APPLIED HERE ---
+# STATIC FILES PATH CORRECTION: Use BASE_DIR directly if 'static' is a sibling of 'app'
 app.mount(
     "/static", 
-    StaticFiles(directory=str(BASE_DIR.parent / "static")), 
+    StaticFiles(directory=str(BASE_DIR / "static")), 
     name="static"
 )
+# ------------------------------
 
 
 @app.get('/', response_class=HTMLResponse)
@@ -184,7 +188,6 @@ async def video(
     v:str, 
     request: Request, 
     proxy: Union[str] = Cookie(None),
-    # 新しい設定クッキーを読み込む
     streamurl_enabled: Union[str] = Cookie(None),
     nocookie_enabled: Union[str] = Cookie(None)
 ):
@@ -204,7 +207,6 @@ async def video(
         "subscribers_count": video_data[0]['subscribers_count'], 
         "recommended_videos": video_data[1], 
         "proxy":proxy,
-        # クッキーの値をブール値としてテンプレートに渡す
         "streamurl_enabled": streamurl_enabled == 'true',
         "nocookie_enabled": nocookie_enabled == 'true',
     })
@@ -249,7 +251,6 @@ async def setting_page(
     nocookie_enabled: Union[str] = Cookie(None)
 ):
     """視聴設定ページを表示するルート"""
-    # クッキー値をブール値に変換
     is_streamurl = streamurl_enabled == 'true'
     is_nocookie = nocookie_enabled == 'true'
     
@@ -265,15 +266,13 @@ async def save_settings(
     nocookie_enabled: Union[str, None] = Form(None),
 ):
     """視聴設定を保存し、クッキーを設定するルート"""
-    # 303 See Otherで/settingにリダイレクトするレスポンスを作成
     response = RedirectResponse("/setting", status_code=303)
     
-    # 'streamurl_enabled' クッキーを設定 (チェックボックスがオンなら 'true', オフなら 'false')
     stream_value = "true" if streamurl_enabled == 'on' else "false"
     response.set_cookie(key="streamurl_enabled", value=stream_value, max_age=3600*24*365, httponly=True)
 
-    # 'nocookie_enabled' クッキーを設定
     nocookie_value = "true" if nocookie_enabled == 'on' else "false"
     response.set_cookie(key="nocookie_enabled", value=nocookie_value, max_age=3600*24*365, httponly=True)
 
     return response
+```eof
