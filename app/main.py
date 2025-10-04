@@ -5,15 +5,13 @@ import datetime
 import urllib.parse
 from pathlib import Path 
 from typing import Union
-from fastapi import FastAPI, Response, Request, Cookie, Form 
+from fastapi import FastAPI, Response, Request, Cookie
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool 
 
-# BASE_DIRをプロジェクトルートとして定義
 BASE_DIR = Path(__file__).resolve().parent.parent
-# TEMPLATES PATH CORRECTION: BASE_DIRを直接使用して 'templates' フォルダを参照
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates")) 
 
 class APITimeoutError(Exception): pass
@@ -27,47 +25,47 @@ max_time = 10.0
 max_api_wait_time = (3.0, 5.0)
 failed = "Load Failed"
 
-# Invidious API List (Used for failover)
 invidious_api_data = {
     'video': [
-        '[https://yt.omada.cafe/](https://yt.omada.cafe/)',
-        '[https://iv.melmac.space/](https://iv.melmac.space/)', 
+        'https://yt.omada.cafe/',
+        'https://iv.melmac.space/', 
     ], 
     'playlist': [
-        '[https://invidious.ducks.party/](https://invidious.ducks.party/)',
-        '[https://super8.absturztau.be/](https://super8.absturztau.be/)',
-        '[https://invidious.nikkosphere.com/](https://invidious.nikkosphere.com/)',
-        '[https://invidious.ducks.party/](https://invidious.ducks.party/)',
-        '[https://yt.omada.cafe/](https://yt.omada.cafe/)',
-        '[https://iv.melmac.space/](https://iv.melmac.space/)',
+        'https://invidious.ducks.party/',
+        'https://super8.absturztau.be/',
+        'https://invidious.nikkosphere.com/',
+        'https://invidious.ducks.party/',
+        'https://yt.omada.cafe/',
+        'https://iv.melmac.space/',
     ], 
     'search': [
-        '[https://invidious.ducks.party/](https://invidious.ducks.party/)',
-        '[https://super8.absturztau.be/](https://super8.absturztau.be/)',
-        '[https://invidious.nikkosphere.com/](https://invidious.nikkosphere.com/)',
-        '[https://invidious.ducks.party/](https://invidious.ducks.party/)',
-        '[https://yt.omada.cafe/](https://yt.omada.cafe/)',
-        '[https://iv.melmac.space/](https://iv.melmac.space/)',
+        'https://invidious.ducks.party/',
+        'https://super8.absturztau.be/',
+        'https://invidious.nikkosphere.com/',
+        'https://invidious.ducks.party/',
+        'https://yt.omada.cafe/',
+        'https://iv.melmac.space/',
     ], 
     'channel': [
-        '[https://invidious.ducks.party/](https://invidious.ducks.party/)',
-        '[https://super8.absturztau.be/](https://super8.absturztau.be/)',
-        '[https://invidious.nikkosphere.com/](https://invidious.nikkosphere.com/)',
-        '[https://invidious.ducks.party/](https://invidious.ducks.party/)',
-        '[https://yt.omada.cafe/](https://yt.omada.cafe/)',
-        '[https://iv.melmac.space/](https://iv.melmac.space/)',
+        'https://invidious.ducks.party/',
+        'https://super8.absturztau.be/',
+        'https://invidious.nikkosphere.com/',
+        'https://invidious.ducks.party/',
+        'https://yt.omada.cafe/',
+        'https://iv.melmac.space/',
     ], 
     'comments': [
-        '[https://invidious.ducks.party/](https://invidious.ducks.party/)',
-        '[https://super8.absturztau.be/](https://super8.absturztau.be/)',
-        '[https://invidious.nikkosphere.com/](https://invidious.nikkosphere.com/)',
-        '[https://invidious.ducks.party/](https://invidious.ducks.party/)',
-        '[https://yt.omada.cafe/](https://yt.omada.cafe/)',
-        '[https://iv.melmac.space/](https://iv.melmac.space/)',
+        'https://invidious.ducks.party/',
+        'https://super8.absturztau.be/',
+        'https://invidious.nikkosphere.com/',
+        'https://invidious.ducks.party/',
+        'https://yt.omada.cafe/',
+        'https://iv.melmac.space/',
     ]
 }
 
 class InvidiousAPI:
+    # 修正済み: selfself から self に変更
     def __init__(self):
         self.all = invidious_api_data
         self.video = list(self.all['video']); 
@@ -137,7 +135,7 @@ async def getTrendingData(region: str):
     return [formatSearchData(data_dict) for data_dict in datas_dict if data_dict.get("type") == "video"]
 
 async def getChannelData(channelid):
-    t_text = await run_in_in_threadpool(requestAPI, f"/channels/{urllib.parse.quote(channelid)}", invidious_api.channel)
+    t_text = await run_in_threadpool(requestAPI, f"/channels/{urllib.parse.quote(channelid)}", invidious_api.channel)
     t = json.loads(t_text)
     latest_videos = t.get('latestvideo') or t.get('latestVideos') or []
     return [[
@@ -164,7 +162,6 @@ async def getCommentsData(videoid):
 app = FastAPI()
 invidious_api = InvidiousAPI() 
 
-# STATIC FILES PATH CORRECTION: BASE_DIRを直接使用して 'static' フォルダを参照
 app.mount(
     "/static", 
     StaticFiles(directory=str(BASE_DIR / "static")), 
@@ -180,31 +177,10 @@ async def home(request: Request, proxy: Union[str] = Cookie(None)):
     })
 
 @app.get('/watch', response_class=HTMLResponse)
-async def video(
-    v:str, 
-    request: Request, 
-    proxy: Union[str] = Cookie(None),
-    streamurl_enabled: Union[str] = Cookie(None),
-    nocookie_enabled: Union[str] = Cookie(None)
-):
+async def video(v:str, request: Request, proxy: Union[str] = Cookie(None)):
     video_data = await getVideoData(v)
     return templates.TemplateResponse('video.html', {
-        "request": request, 
-        "videoid": v, 
-        "videourls": video_data[0]['video_urls'], 
-        "description": video_data[0]['description_html'], 
-        "video_title": video_data[0]['title'], 
-        "author_id": video_data[0]['author_id'], 
-        "author_icon": video_data[0]['author_thumbnails_url'], 
-        "author": video_data[0]['author'], 
-        "length_text": video_data[0]['length_text'], 
-        "view_count": video_data[0]['view_count'], 
-        "like_count": video_data[0]['like_count'], 
-        "subscribers_count": video_data[0]['subscribers_count'], 
-        "recommended_videos": video_data[1], 
-        "proxy":proxy,
-        "streamurl_enabled": streamurl_enabled == 'true',
-        "nocookie_enabled": nocookie_enabled == 'true',
+        "request": request, "videoid": v, "videourls": video_data[0]['video_urls'], "description": video_data[0]['description_html'], "video_title": video_data[0]['title'], "author_id": video_data[0]['author_id'], "author_icon": video_data[0]['author_thumbnails_url'], "author": video_data[0]['author'], "length_text": video_data[0]['length_text'], "view_count": video_data[0]['view_count'], "like_count": video_data[0]['like_count'], "subscribers_count": video_data[0]['subscribers_count'], "recommended_videos": video_data[1], "proxy":proxy
     })
 
 @app.get("/search", response_class=HTMLResponse)
@@ -219,7 +195,7 @@ async def hashtag_search(tag:str):
 @app.get("/channel/{channelid}", response_class=HTMLResponse)
 async def channel(channelid:str, request: Request, proxy: Union[str] = Cookie(None)):
     t = await getChannelData(channelid)
-    return templates.TemplateResponse("channel.html", {"request": request, "results": t[0], "channel_name": t[1]["channel_name"], "channel_icon": t[1]["channel_icon"], "channel_profile": t[1]["channel_profile"], "cover_img_url": t[1]["author_banner"], "subscribers_count": t[1]["subscribers_count"], "tags": t[1]["tags"], "proxy": proxy})
+    return templates.TemplateResponse("channel.html", {"request": request, "results": t[0], "channel_name": t[1]["channel_name"], "channel_icon": t[1]["channel_icon"], "channel_profile": t[1]["channel_profile"], "cover_img_url": t[1]["author_banner"], "subscribers_count": t[1]["subscribers_count"], "proxy": proxy})
 
 @app.get("/playlist", response_class=HTMLResponse)
 async def playlist(list_id:str, request: Request, page:Union[int, None]=1, proxy: Union[str] = Cookie(None)):
@@ -233,41 +209,9 @@ async def comments(request: Request, v:str):
 
 @app.get("/thumbnail")
 def thumbnail(v:str):
-    return Response(content = requests.get(f"[https://img.youtube.com/vi/](https://img.youtube.com/vi/){v}/0.jpg").content, media_type="image/jpeg")
+    return Response(content = requests.get(f"https://img.youtube.com/vi/{v}/0.jpg").content, media_type="image/jpeg")
 
 @app.get("/suggest")
 def suggest(keyword:str):
-    res_text = requests.get("[http://www.google.com/complete/search?client=youtube&hl=ja&ds=yt&q=](http://www.google.com/complete/search?client=youtube&hl=ja&ds=yt&q=)" + urllib.parse.quote(keyword), headers=getRandomUserAgent()).text
+    res_text = requests.get("http://www.google.com/complete/search?client=youtube&hl=ja&ds=yt&q=" + urllib.parse.quote(keyword), headers=getRandomUserAgent()).text
     return [i[0] for i in json.loads(res_text[19:-1])[1]]
-
-@app.get('/setting', response_class=HTMLResponse)
-async def setting_page(
-    request: Request, 
-    streamurl_enabled: Union[str] = Cookie(None),
-    nocookie_enabled: Union[str] = Cookie(None)
-):
-    """視聴設定ページを表示するルート"""
-    is_streamurl = streamurl_enabled == 'true'
-    is_nocookie = nocookie_enabled == 'true'
-    
-    return templates.TemplateResponse("setting.html", {
-        "request": request,
-        "streamurl_enabled": is_streamurl,
-        "nocookie_enabled": is_nocookie
-    })
-
-@app.post("/setting")
-async def save_settings(
-    streamurl_enabled: Union[str, None] = Form(None),
-    nocookie_enabled: Union[str, None] = Form(None),
-):
-    """視聴設定を保存し、クッキーを設定するルート"""
-    response = RedirectResponse("/setting", status_code=303)
-    
-    stream_value = "true" if streamurl_enabled == 'on' else "false"
-    response.set_cookie(key="streamurl_enabled", value=stream_value, max_age=3600*24*365, httponly=True)
-
-    nocookie_value = "true" if nocookie_enabled == 'on' else "false"
-    response.set_cookie(key="nocookie_enabled", value=nocookie_value, max_age=3600*24*365, httponly=True)
-
-    return response
