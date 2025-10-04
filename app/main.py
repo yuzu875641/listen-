@@ -10,7 +10,6 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool 
-# ytpbのインポートは削除済み
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates")) 
@@ -31,6 +30,7 @@ FALLBACK_API = "https://siawaseok.f5.si/api/2/streams/"
 
 invidious_api_data = {
     'video': [
+        'https://yt.omada.cafe/',
         'https://iv.melmac.space/', 
     ], 
     'playlist': [
@@ -99,6 +99,7 @@ def requestAPI(path, api_urls):
         except requests.exceptions.RequestException:
             continue
             
+    # 全API失敗時はエラーを投げる
     raise APITimeoutError("All available API instances failed to respond.")
 
 def formatSearchData(data_dict, failed="Load Failed"):
@@ -123,7 +124,7 @@ def get_fallback_video_data(videoid):
     try:
         res = requests.get(FALLBACK_API + videoid, headers=getRandomUserAgent(), timeout=max_api_wait_time)
         if res.status_code != requests.codes.ok or not isJSON(res.text):
-            return None, None
+            return "タイトル不明", None
 
         data = res.json()
         title = data.get("title", "タイトル不明")
@@ -141,7 +142,7 @@ def get_fallback_video_data(videoid):
         
     except requests.exceptions.RequestException as e:
         print(f"Fallback API error for {videoid}: {e}")
-        return None, None
+        return "タイトル不明", None
 
 async def getVideoData(videoid):
     failed = "Load Failed"
@@ -240,9 +241,24 @@ async def video(v:str, request: Request, proxy: Union[str] = Cookie(None)):
         })
     except APITimeoutError:
         # Invidious API失敗時はエラーメッセージと緊急再生ルートへのリンクを提示
-        return HTMLResponse(content=f"<html><body><h1>APIエラー</h1><p>動画情報の取得に失敗しました。緊急再生を試す場合は <a href='/w?v={v}'>/w?v={v}</a> を利用してください。</p></body></html>", status_code=503)
+        error_html = f"""
+        <html>
+        <head><title>APIエラー</title></head>
+        <body style="background-color:#0f0f0f; color:white; font-family:Arial, sans-serif; padding: 20px;">
+            <h1>動画情報の取得に失敗しました😭</h1>
+            <p>全てのInvidious APIが応答しませんでした。</p>
+            <p>緊急フォールバック再生を試しますか？</p>
+            <p style="margin-top: 20px;">
+                <a href='/w?v={v}' style="color: red; font-size: 1.2em; text-decoration: none; border: 1px solid red; padding: 10px 15px; border-radius: 5px;">
+                    緊急再生 ( /w?v={v} ) を試す
+                </a>
+            </p>
+        </body>
+        </html>
+        """
+        return HTMLResponse(content=error_html, status_code=503)
 
-# ★ 新規追加: /w ルート (緊急フォールバック再生ルート)
+# ★ /w ルート (緊急フォールバック再生ルート)
 @app.get('/w', response_class=HTMLResponse)
 async def sub_video(v:str, request: Request):
     # 緊急フォールバックAPIを試行 (ブロッキング処理)
