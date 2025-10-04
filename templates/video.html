@@ -6,25 +6,57 @@
 <div class="watch-page-container">
     <div class="main-video-area">
         <div style="width: 100%; aspect-ratio: 16/9; background-color: black; position: relative; overflow: hidden; border-radius: 8px;">
-            {% if videourls and videourls[0] != "Load Failed" %}
+            {% set stream_url_available = videourls and videourls[0] != "Load Failed" %}
+
+            {# ---------------------------------------------------- #}
+            {# 1. Stream URL プレイヤーのロジック #}
+            {# ---------------------------------------------------- #}
+            {% if streamurl_enabled and stream_url_available %}
+                {# 設定でStream URLが有効かつ、URLが取得できた場合 #}
                 <video controls autoplay
-                    style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;">
-                    <source src="{{ videourls[0] }}" type="application/x-mpegURL">
-                    <div style="color: white; display: flex; align-items: center; justify-content: center; height: 100%;">
+                    style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover;">
+                    {# 最初のURLを使用 (M3U8やWebMなど、ブラウザが対応するもの) #}
+                    <source src="{{ videourls[0] }}" type="application/x-mpegURL"> 
+                    <div style="color: var(--yt-text); display: flex; align-items: center; justify-content: center; height: 100%;">
                         お使いのブラウザは動画形式をサポートしていません。
+                        <p style="margin-left: 5px; font-size: 12px; color: var(--yt-sub-text);"> (Stream URLモード)</p>
                     </div>
                 </video>
+
+            {# ---------------------------------------------------- #}
+            {# 2. YouTube Iframe プレイヤーのロジック #}
+            {# ---------------------------------------------------- #}
+            {% elif stream_url_available %}
+                {# Stream URLが有効ではない、または設定でオフになっている場合、Iframeを使用 #}
+                {% set youtube_domain = "www.youtube.com" %}
+                {% if nocookie_enabled %}
+                    {% set youtube_domain = "www.youtube-nocookie.com" %}
+                {% endif %}
+
+                <iframe 
+                    id="youtube-iframe"
+                    style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: none;"
+                    src="https://{{ youtube_domain }}/embed/{{ videoid }}?autoplay=1&rel=0" 
+                    frameborder="0" 
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+                    allowfullscreen>
+                </iframe>
+
+            {# ---------------------------------------------------- #}
+            {# 3. 失敗時のメッセージ #}
+            {# ---------------------------------------------------- #}
             {% else %}
-                <div style="color: white; display: flex; align-items: center; justify-content: center; height: 100%; font-size: 18px;">
+                <div style="color: var(--yt-text); display: flex; align-items: center; justify-content: center; height: 100%; font-size: 18px;">
                     🚫 **動画ストリームの取得に失敗しました。**
                 </div>
             {% endif %}
         </div>
+        {# ここから下は変更なし #}
 
         <h1 style="font-size: 24px; margin: 16px 0;">{{ video_title }}</h1>
 
         <div class="metadata">
-            <div class="channel-info">
+            <div class="channel-info" style="display: flex; align-items: center;">
                 <a href="/channel/{{ author_id }}">
                     <img src="{{ author_icon }}" style="width: 40px; height: 40px; border-radius: 50%; margin-right: 12px; object-fit: cover;">
                 </a>
@@ -72,14 +104,15 @@
     function loadComments(videoId) {
         const commentList = document.getElementById('comment-list');
         
-        // ローディング表示に切り替える（ここでは初期表示として既に設定済み）
+        // コメントの読み込み中表示
         commentList.innerHTML = '<div style="color: var(--yt-sub-text);">コメントを読み込み中...</div>';
         
         // /comments?v=<videoid> エンドポイントからHTMLフラグメントをフェッチ
         fetch(`/comments?v=${videoId}`)
             .then(response => {
                 if (!response.ok) {
-                    throw new Error('コメントの読み込みに失敗しました。');
+                    // HTTPエラーの場合
+                    throw new Error(`コメントの読み込みに失敗しました (${response.status} ${response.statusText})`);
                 }
                 return response.text();
             })
@@ -89,7 +122,7 @@
             })
             .catch(error => {
                 console.error('コメントのロード中にエラーが発生:', error);
-                commentList.innerHTML = '<div style="color: red; padding: 10px;">コメントの読み込み中にエラーが発生しました。</div>';
+                commentList.innerHTML = '<div style="color: var(--yt-red); padding: 10px;">コメントの読み込み中にエラーが発生しました。</div>';
             });
     }
 
