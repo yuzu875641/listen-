@@ -11,12 +11,10 @@ from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool 
 
-# --- CORRECTION APPLIED HERE ---
-# Assuming main.py is in 'app/' and BASE_DIR is intended to be the project root
+# BASE_DIRをプロジェクトルートとして定義
 BASE_DIR = Path(__file__).resolve().parent.parent
-# TEMPLATES PATH CORRECTION: Use BASE_DIR directly if 'templates' is a sibling of 'app'
+# TEMPLATES PATH CORRECTION: BASE_DIRを直接使用して 'templates' フォルダを参照
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates")) 
-# ------------------------------
 
 class APITimeoutError(Exception): pass
 def getRandomUserAgent(): return {'User-Agent': 'Mozilla/50 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/94.0.4606.61 Safari/537.36'}
@@ -32,40 +30,40 @@ failed = "Load Failed"
 # Invidious API List (Used for failover)
 invidious_api_data = {
     'video': [
-        'https://yt.omada.cafe/',
-        'https://iv.melmac.space/', 
+        '[https://yt.omada.cafe/](https://yt.omada.cafe/)',
+        '[https://iv.melmac.space/](https://iv.melmac.space/)', 
     ], 
     'playlist': [
-        'https://invidious.ducks.party/',
-        'https://super8.absturztau.be/',
-        'https://invidious.nikkosphere.com/',
-        'https://invidious.ducks.party/',
-        'https://yt.omada.cafe/',
-        'https://iv.melmac.space/',
+        '[https://invidious.ducks.party/](https://invidious.ducks.party/)',
+        '[https://super8.absturztau.be/](https://super8.absturztau.be/)',
+        '[https://invidious.nikkosphere.com/](https://invidious.nikkosphere.com/)',
+        '[https://invidious.ducks.party/](https://invidious.ducks.party/)',
+        '[https://yt.omada.cafe/](https://yt.omada.cafe/)',
+        '[https://iv.melmac.space/](https://iv.melmac.space/)',
     ], 
     'search': [
-        'https://invidious.ducks.party/',
-        'https://super8.absturztau.be/',
-        'https://invidious.nikkosphere.com/',
-        'https://invidious.ducks.party/',
-        'https://yt.omada.cafe/',
-        'https://iv.melmac.space/',
+        '[https://invidious.ducks.party/](https://invidious.ducks.party/)',
+        '[https://super8.absturztau.be/](https://super8.absturztau.be/)',
+        '[https://invidious.nikkosphere.com/](https://invidious.nikkosphere.com/)',
+        '[https://invidious.ducks.party/](https://invidious.ducks.party/)',
+        '[https://yt.omada.cafe/](https://yt.omada.cafe/)',
+        '[https://iv.melmac.space/](https://iv.melmac.space/)',
     ], 
     'channel': [
-        'https://invidious.ducks.party/',
-        'https://super8.absturztau.be/',
-        'https://invidious.nikkosphere.com/',
-        'https://invidious.ducks.party/',
-        'https://yt.omada.cafe/',
-        'https://iv.melmac.space/',
+        '[https://invidious.ducks.party/](https://invidious.ducks.party/)',
+        '[https://super8.absturztau.be/](https://super8.absturztau.be/)',
+        '[https://invidious.nikkosphere.com/](https://invidious.nikkosphere.com/)',
+        '[https://invidious.ducks.party/](https://invidious.ducks.party/)',
+        '[https://yt.omada.cafe/](https://yt.omada.cafe/)',
+        '[https://iv.melmac.space/](https://iv.melmac.space/)',
     ], 
     'comments': [
-        'https://invidious.ducks.party/',
-        'https://super8.absturztau.be/',
-        'https://invidious.nikkosphere.com/',
-        'https://invidious.ducks.party/',
-        'https://yt.omada.cafe/',
-        'https://iv.melmac.space/',
+        '[https://invidious.ducks.party/](https://invidious.ducks.party/)',
+        '[https://super8.absturztau.be/](https://super8.absturztau.be/)',
+        '[https://invidious.nikkosphere.com/](https://invidious.nikkosphere.com/)',
+        '[https://invidious.ducks.party/](https://invidious.ducks.party/)',
+        '[https://yt.omada.cafe/](https://yt.omada.cafe/)',
+        '[https://iv.melmac.space/](https://iv.melmac.space/)',
     ]
 }
 
@@ -139,7 +137,7 @@ async def getTrendingData(region: str):
     return [formatSearchData(data_dict) for data_dict in datas_dict if data_dict.get("type") == "video"]
 
 async def getChannelData(channelid):
-    t_text = await run_in_threadpool(requestAPI, f"/channels/{urllib.parse.quote(channelid)}", invidious_api.channel)
+    t_text = await run_in_in_threadpool(requestAPI, f"/channels/{urllib.parse.quote(channelid)}", invidious_api.channel)
     t = json.loads(t_text)
     latest_videos = t.get('latestvideo') or t.get('latestVideos') or []
     return [[
@@ -166,14 +164,12 @@ async def getCommentsData(videoid):
 app = FastAPI()
 invidious_api = InvidiousAPI() 
 
-# --- CORRECTION APPLIED HERE ---
-# STATIC FILES PATH CORRECTION: Use BASE_DIR directly if 'static' is a sibling of 'app'
+# STATIC FILES PATH CORRECTION: BASE_DIRを直接使用して 'static' フォルダを参照
 app.mount(
     "/static", 
     StaticFiles(directory=str(BASE_DIR / "static")), 
     name="static"
 )
-# ------------------------------
 
 
 @app.get('/', response_class=HTMLResponse)
@@ -223,7 +219,7 @@ async def hashtag_search(tag:str):
 @app.get("/channel/{channelid}", response_class=HTMLResponse)
 async def channel(channelid:str, request: Request, proxy: Union[str] = Cookie(None)):
     t = await getChannelData(channelid)
-    return templates.TemplateResponse("channel.html", {"request": request, "results": t[0], "channel_name": t[1]["channel_name"], "channel_icon": t[1]["channel_icon"], "channel_profile": t[1]["channel_profile"], "cover_img_url": t[1]["author_banner"], "subscribers_count": t[1]["subscribers_count"], "proxy": proxy})
+    return templates.TemplateResponse("channel.html", {"request": request, "results": t[0], "channel_name": t[1]["channel_name"], "channel_icon": t[1]["channel_icon"], "channel_profile": t[1]["channel_profile"], "cover_img_url": t[1]["author_banner"], "subscribers_count": t[1]["subscribers_count"], "tags": t[1]["tags"], "proxy": proxy})
 
 @app.get("/playlist", response_class=HTMLResponse)
 async def playlist(list_id:str, request: Request, page:Union[int, None]=1, proxy: Union[str] = Cookie(None)):
@@ -237,11 +233,11 @@ async def comments(request: Request, v:str):
 
 @app.get("/thumbnail")
 def thumbnail(v:str):
-    return Response(content = requests.get(f"https://img.youtube.com/vi/{v}/0.jpg").content, media_type="image/jpeg")
+    return Response(content = requests.get(f"[https://img.youtube.com/vi/](https://img.youtube.com/vi/){v}/0.jpg").content, media_type="image/jpeg")
 
 @app.get("/suggest")
 def suggest(keyword:str):
-    res_text = requests.get("http://www.google.com/complete/search?client=youtube&hl=ja&ds=yt&q=" + urllib.parse.quote(keyword), headers=getRandomUserAgent()).text
+    res_text = requests.get("[http://www.google.com/complete/search?client=youtube&hl=ja&ds=yt&q=](http://www.google.com/complete/search?client=youtube&hl=ja&ds=yt&q=)" + urllib.parse.quote(keyword), headers=getRandomUserAgent()).text
     return [i[0] for i in json.loads(res_text[19:-1])[1]]
 
 @app.get('/setting', response_class=HTMLResponse)
@@ -275,4 +271,3 @@ async def save_settings(
     response.set_cookie(key="nocookie_enabled", value=nocookie_value, max_age=3600*24*365, httponly=True)
 
     return response
-```eof
