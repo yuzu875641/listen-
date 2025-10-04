@@ -38,16 +38,14 @@
                 🔄 動画ストリームを読み込み中...
             </div>
             
-            <video id="stream-video" controls autoplay
-                style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;">
-                {# ユーザーが指定したURL形式とデフォルトのitag=91を使用 #}
-                <source id="video-source" 
-                        src="https://pooo-eta.vercel.app/watch?v={{ videoid }}&itag=91" 
-                        type="application/x-mpegURL">
-                <div style="color: white; display: flex; align-items: center; justify-content: center; height: 100%;">
-                    お使いのブラウザは動画形式をサポートしていません。
-                </div>
-            </video>
+            {# ★★★ <embed> タグを使用して動画を埋め込み ★★★ #}
+            <embed id="stream-embed"
+                type="application/x-mpegURL" 
+                src="https://pooo-eta.vercel.app/watch?v={{ videoid }}&itag=91" 
+                width="100%" height="100%"
+                style="position: absolute; top: 0; left: 0;">
+            {# <embed>タグは、通常コントロールや自動再生をサポートしますが、ブラウザ依存性が高くなります #}
+
         </div>
 
         <div id="youtube-embed-player" style="display: none; width: 100%; aspect-ratio: 16/9; position: relative; overflow: hidden; border-radius: 8px;">
@@ -62,7 +60,6 @@
 
         <h1 style="font-size: 24px; margin: 16px 0;">{{ video_title }}</h1>
 
-        {# ... (メタデータ、説明、コメントコンテナなどは省略) ... #}
         <div class="metadata">
             <div class="channel-info">
                 <a href="/channel/{{ author_id }}">
@@ -135,8 +132,9 @@
         const yuzuBtn = document.getElementById('yuzu-btn');
         const youtubeBtn = document.getElementById('youtube-btn');
         const qualitySelector = document.getElementById('quality-selector');
-        const videoElement = document.getElementById('stream-video'); 
-        const loadMessage = document.getElementById('video-load-message'); // ロードメッセージ要素
+        // ★ Embed要素を取得
+        const embedElement = document.getElementById('stream-embed'); 
+        const loadMessage = document.getElementById('video-load-message');
 
         if (playerId === 'yuzutube-player') {
             yuzuPlayer.style.display = 'block';
@@ -146,9 +144,15 @@
             youtubeBtn.style.backgroundColor = 'var(--yt-bg)';
             qualitySelector.style.display = 'block';
 
-            // ★ ストリームプレイヤーに切り替えた際、すぐにロードメッセージを表示
+            // ★ Embed要素はpause/playメソッドを持たないため、ロードメッセージの表示のみ調整
+            loadMessage.innerHTML = '🔄 動画ストリームを読み込み中...';
+            // Embedのロード状態を正確に判定するのは難しいため、常にロードメッセージを短時間表示
             loadMessage.style.display = 'flex';
-            
+            setTimeout(() => {
+                // 読み込みが完了したと見なして非表示にする (仮の対策)
+                loadMessage.style.display = 'none'; 
+            }, 3000); // 3秒後にメッセージを非表示
+
         } else {
             yuzuPlayer.style.display = 'none';
             youtubePlayer.style.display = 'block';
@@ -157,10 +161,6 @@
             youtubeBtn.style.backgroundColor = 'var(--yt-light-dark)';
             qualitySelector.style.display = 'none';
 
-            // ★ YouTube埋め込みに切り替えた際、ストリーム動画を一時停止し、ロードメッセージを非表示
-            if (videoElement) {
-                videoElement.pause();
-            }
             loadMessage.style.display = 'none';
         }
     }
@@ -169,34 +169,28 @@
      * 新しいitagに基づいてストリームURLを更新し、動画をリロードする関数
      */
     function changeQuality(itag, videoId) {
-        const videoElement = document.getElementById('stream-video');
-        const sourceElement = document.getElementById('video-source');
+        // ★ Embed要素を取得
+        const embedElement = document.getElementById('stream-embed');
         const loadMessage = document.getElementById('video-load-message');
         
         // 新しいURLを生成
         const newUrl = `https://pooo-eta.vercel.app/watch?v=${videoId}&itag=${itag}`;
         
-        if (videoElement && sourceElement) {
-            // ★ 新しいロード開始時にメッセージを表示
+        if (embedElement) {
+            // ロード開始時にメッセージを表示
             loadMessage.innerHTML = '🔄 動画ストリームを読み込み中...';
             loadMessage.style.display = 'flex';
-
-            sourceElement.src = newUrl;
-            videoElement.load();
             
-            // ロードが完了したらメッセージを非表示にするイベントリスナー
-            videoElement.addEventListener('canplay', () => {
-                loadMessage.style.display = 'none';
-                // 再生を試みる
-                videoElement.play().catch(error => {
-                    console.log("動画の自動再生に失敗しました (ユーザー操作が必要):", error);
-                });
-            }, { once: true }); // 一度だけ実行
+            // src属性を更新することで、Embed要素に再ロードを促す
+            embedElement.src = newUrl;
+            
+            // ★ Embedはイベントリスナーが不安定なため、setTimeoutでロード完了を擬似的に表現
+            setTimeout(() => {
+                // 読み込みが完了したと見なして非表示にする (仮の対策)
+                loadMessage.style.display = 'none'; 
+            }, 3000); // 3秒後にメッセージを非表示
 
-            // ★ エラー発生時の処理
-            videoElement.addEventListener('error', () => {
-                loadMessage.innerHTML = '🚫 **動画ストリームの取得に失敗しました。** 画質を変更するか、YouTube埋め込みをお試しください。';
-            }, { once: true });
+            // ★ Embedでのエラー検出は困難なため、エラーメッセージの表示は省略します
         }
     }
     
@@ -205,9 +199,12 @@
         const videoId = '{{ videoid }}';
         loadComments(videoId);
         
-        // 初期選択されているitagを取得して動画を読み込み・イベントリスナーを設定
-        const defaultItag = document.getElementById('itag-select').value;
-        changeQuality(defaultItag, videoId);
+        // 初回ロード時もメッセージを短時間表示し、読み込み中であることを伝える
+        const loadMessage = document.getElementById('video-load-message');
+        loadMessage.style.display = 'flex';
+        setTimeout(() => {
+            loadMessage.style.display = 'none'; 
+        }, 3000); 
     });
 
 </script>
