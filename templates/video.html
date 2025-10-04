@@ -15,12 +15,11 @@
                 YouTube埋め込みで再生
             </button>
             
-            {# --- 画質変更ボタンを追加 --- #}
             <div id="quality-selector" style="display: block; margin-left: 20px;">
                 <span style="color: var(--yt-text); margin-right: 5px;">画質:</span>
                 <select id="itag-select" onchange="changeQuality(this.value, '{{ videoid }}');" 
                         style="padding: 5px; border: 1px solid var(--yt-sub-text); background-color: var(--yt-light-dark); color: var(--yt-text); border-radius: 4px;">
-                    {# itagのオプションリスト。ここでは91をデフォルトとして選択 #}
+                    {# itagのオプションリスト。91をデフォルトとして選択 #}
                     <option value="96">1080p60 (96)</option>
                     <option value="95">1080p (95)</option>
                     <option value="301">1080p60 WebM (301)</option>
@@ -31,11 +30,14 @@
                     <option value="91" selected>240p (91)</option>
                 </select>
             </div>
-            {# -------------------------- #}
         </div>
 
         <div id="yuzutube-player" style="display: block; width: 100%; aspect-ratio: 16/9; background-color: black; position: relative; overflow: hidden; border-radius: 8px;">
-            {# video要素とsource要素にIDを追加し、初期URLを設定 #}
+            {# 動画の読み込み失敗時のメッセージを扱うためのコンテナ #}
+            <div id="video-load-message" style="color: white; display: flex; align-items: center; justify-content: center; height: 100%; font-size: 18px; position: absolute; top: 0; left: 0; width: 100%; z-index: 10; background-color: rgba(0, 0, 0, 0.8); display: none;">
+                🔄 動画ストリームを読み込み中...
+            </div>
+            
             <video id="stream-video" controls autoplay
                 style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;">
                 {# ユーザーが指定したURL形式とデフォルトのitag=91を使用 #}
@@ -60,6 +62,7 @@
 
         <h1 style="font-size: 24px; margin: 16px 0;">{{ video_title }}</h1>
 
+        {# ... (メタデータ、説明、コメントコンテナなどは省略) ... #}
         <div class="metadata">
             <div class="channel-info">
                 <a href="/channel/{{ author_id }}">
@@ -107,12 +110,9 @@
 
 <script>
     function loadComments(videoId) {
+        // ... (コメントロード関数は変更なし) ...
         const commentList = document.getElementById('comment-list');
-        
-        // ローディング表示に切り替える
         commentList.innerHTML = '<div style="color: var(--yt-sub-text);">コメントを読み込み中...</div>';
-        
-        // /comments?v=<videoid> エンドポイントからHTMLフラグメントをフェッチ
         fetch(`/comments?v=${videoId}`)
             .then(response => {
                 if (!response.ok) {
@@ -121,7 +121,6 @@
                 return response.text();
             })
             .then(html => {
-                // 取得したHTML (comments.htmlの内容) をコンテナに挿入
                 commentList.innerHTML = html;
             })
             .catch(error => {
@@ -130,77 +129,86 @@
             });
     }
 
-    /**
-     * 動画プレーヤーを切り替え、ボタンのスタイルを更新し、非表示になる動画を一時停止する関数
-     * @param {string} playerId - 表示するプレーヤーのID ('yuzutube-player' or 'youtube-embed-player')
-     */
     function showPlayer(playerId) {
         const yuzuPlayer = document.getElementById('yuzutube-player');
         const youtubePlayer = document.getElementById('youtube-embed-player');
         const yuzuBtn = document.getElementById('yuzu-btn');
         const youtubeBtn = document.getElementById('youtube-btn');
         const qualitySelector = document.getElementById('quality-selector');
-        // ストリームURLの動画要素をIDで取得
         const videoElement = document.getElementById('stream-video'); 
+        const loadMessage = document.getElementById('video-load-message'); // ロードメッセージ要素
 
         if (playerId === 'yuzutube-player') {
-            // ストリームURLによるプレーヤーを表示
             yuzuPlayer.style.display = 'block';
             youtubePlayer.style.display = 'none';
             
-            // ボタンのスタイル更新
             yuzuBtn.style.backgroundColor = 'var(--yt-light-dark)';
             youtubeBtn.style.backgroundColor = 'var(--yt-bg)';
-            // ストリーム再生時のみ画質セレクタを表示
             qualitySelector.style.display = 'block';
+
+            // ★ ストリームプレイヤーに切り替えた際、すぐにロードメッセージを表示
+            loadMessage.style.display = 'flex';
             
         } else {
-            // YouTube埋め込みプレーヤーを表示
             yuzuPlayer.style.display = 'none';
             youtubePlayer.style.display = 'block';
             
-            // ボタンのスタイル更新
             yuzuBtn.style.backgroundColor = 'var(--yt-bg)';
             youtubeBtn.style.backgroundColor = 'var(--yt-light-dark)';
-            // YouTube埋め込み再生時は画質セレクタを非表示
             qualitySelector.style.display = 'none';
 
-            // ストリームURLの動画プレーヤーを非表示にする際、再生を一時停止
+            // ★ YouTube埋め込みに切り替えた際、ストリーム動画を一時停止し、ロードメッセージを非表示
             if (videoElement) {
                 videoElement.pause();
             }
+            loadMessage.style.display = 'none';
         }
     }
 
     /**
      * 新しいitagに基づいてストリームURLを更新し、動画をリロードする関数
-     * @param {string} itag - 選択された動画のitag
-     * @param {string} videoId - 現在の動画ID
      */
     function changeQuality(itag, videoId) {
         const videoElement = document.getElementById('stream-video');
         const sourceElement = document.getElementById('video-source');
+        const loadMessage = document.getElementById('video-load-message');
         
-        // 新しいURLを生成: https://pooo-eta.vercel.app/watch?v=Tq9EKRovwbE&itag={itag}
+        // 新しいURLを生成
         const newUrl = `https://pooo-eta.vercel.app/watch?v=${videoId}&itag=${itag}`;
         
         if (videoElement && sourceElement) {
-            // source要素のsrc属性を更新
+            // ★ 新しいロード開始時にメッセージを表示
+            loadMessage.innerHTML = '🔄 動画ストリームを読み込み中...';
+            loadMessage.style.display = 'flex';
+
             sourceElement.src = newUrl;
-            
-            // video要素に新しいソースを読み込ませる
             videoElement.load();
             
-            // ロード後、自動的に再生を試みる
-            // ブラウザの設定によっては自動再生がブロックされる可能性がある
-            videoElement.play().catch(error => {
-                 console.log("動画の自動再生に失敗しました (ユーザー操作が必要):", error);
-            });
+            // ロードが完了したらメッセージを非表示にするイベントリスナー
+            videoElement.addEventListener('canplay', () => {
+                loadMessage.style.display = 'none';
+                // 再生を試みる
+                videoElement.play().catch(error => {
+                    console.log("動画の自動再生に失敗しました (ユーザー操作が必要):", error);
+                });
+            }, { once: true }); // 一度だけ実行
+
+            // ★ エラー発生時の処理
+            videoElement.addEventListener('error', () => {
+                loadMessage.innerHTML = '🚫 **動画ストリームの取得に失敗しました。** 画質を変更するか、YouTube埋め込みをお試しください。';
+            }, { once: true });
         }
     }
-
-    // ★ ページロード時にコメントを自動で読み込む
-    loadComments('{{ videoid }}');
+    
+    // ページロード時の初期設定
+    document.addEventListener('DOMContentLoaded', () => {
+        const videoId = '{{ videoid }}';
+        loadComments(videoId);
+        
+        // 初期選択されているitagを取得して動画を読み込み・イベントリスナーを設定
+        const defaultItag = document.getElementById('itag-select').value;
+        changeQuality(defaultItag, videoId);
+    });
 
 </script>
 {% endblock %}
