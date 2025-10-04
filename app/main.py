@@ -65,7 +65,8 @@ invidious_api_data = {
 }
 
 class InvidiousAPI:
-    def __init__(selfself):
+    # 修正済み: selfself から self に変更
+    def __init__(self):
         self.all = invidious_api_data
         self.video = list(self.all['video']); 
         self.playlist = list(self.all['playlist']);
