@@ -25,6 +25,9 @@ max_time = 10.0
 max_api_wait_time = (3.0, 5.0)
 failed = "Load Failed"
 
+# ユーザーの要望により、動画ストリームURLをこのハードコードされた値に固定
+HARDCODED_STREAM_URL = "https://manifest.googlevideo.com/api/manifest/hls_playlist/expire/1759570577/ei/MZbgaNCwAryXvcAP2O3HsAE/ip/112.138.79.74/id/d8c9638be2078457/itag/95/source/youtube/requiressl/yes/ratebypass/yes/pfa/1/sgoap/clen%3D83786%3Bdur%3D5.085%3Bgir%3Dyes%3Bitag%3D140%3Blmt%3D1759482472462698/sgovp/clen%3D615174%3Bdur%3D5.033%3Bgir%3Dyes%3Bitag%3D136%3Blmt%3D1759482940238877/rqh/1/hls_chunk_host/rr1---sn-8pjuv35p-oguk.googlevideo.com/xpc/EgVo2aDSNQ%3D%3D/met/1759548977,/mh/by/mm/31,26/mn/sn-8pjuv35p-oguk,sn-3pm76nel/ms/au,onr/mv/m/mvi/1/pl/23/rms/au,au/gcr/jp/initcwndbps/3531250/bui/ATw7iSUJmafZO6T6_LpQ7iqy9plQGAJ4KmfBPvbFVOmMm_RvINigzg8GXmtp3B5kdlyqed6AyNCiBtDP/spc/hcYD5VOc_HCAZY8p4nsRQq3v3UQtLcoijgDOFTBMPrvTL37v7ghbkILBMVh0yWdPNKByhA/vprv/1/playlist_type/CLEAN/dover/11/txp/543C534/mt/1759548551/fvip/2/keepalive/yes/fexp/51355912,51552689,51565115,51565682,51580968/sparams/expire,ei,ip,id,itag,source,requiressl,ratebypass,pfa,sgoap,sgovp,rqh,xpc,gcr,bui,spc,vprv,playlist_type/sig/AJfQdSswRgIhAIEk924yhbr804EEbK-e6-rvDSE_fJ00dMdHR2IQvVdqAiEA21SI4Zpm-2ka9eEWKo7R8j13aY5h6Ra2895RcnaiLPQ%3D/lsparams/hls_chunk_host,met,mh,mm,mn,ms,mv,mvi,pl,rms,initcwndbps/lsig/APaTxxMwRQIhAMI5WCmW-2a_7AV2-h3VsFYZZ4aTfzu7kJcBPt0oVaTEAiAkorYkGnaClNaFX70mSyvmF6NKeP9AthFSCdPs7BW2Gg%3D%3D/playlist/index.m3u8"
+
 invidious_api_data = {
     'video': [
         'https://yt.omada.cafe/',
@@ -65,7 +68,6 @@ invidious_api_data = {
 }
 
 class InvidiousAPI:
-    # 修正済み: selfself から self に変更
     def __init__(self):
         self.all = invidious_api_data
         self.video = list(self.all['video']); 
@@ -99,33 +101,6 @@ def requestAPI(path, api_urls):
             
     raise APITimeoutError("All available API instances failed to respond.")
 
-# --- NEW FUNCTION START ---
-def fetch_custom_stream_url(videoid):
-    """
-    Fetches the stream URL from the custom siawaseok.f5.si API.
-    """
-    url = f"https://siawaseok.f5.si/api/2/streams/{urllib.parse.quote(videoid)}"
-    try:
-        # 新しいAPIへリクエスト
-        res = requests.get(url, headers=getRandomUserAgent(), timeout=max_api_wait_time)
-        res.raise_for_status() # 4xx/5xxエラーを発生させる
-        
-        if isJSON(res.text):
-            data = res.json()
-            # ユーザーが提供したJSONサンプルに基づき、'url'キーからURLを抽出
-            return data.get("url")
-        else:
-            print(f"Custom stream API returned non-JSON response for {videoid}")
-            return None
-    except requests.exceptions.RequestException as e:
-        print(f"Error fetching custom stream URL for {videoid}: {e}")
-        return None
-    except Exception as e:
-        print(f"An unexpected error occurred while fetching custom stream URL for {videoid}: {e}")
-        return None
-# --- NEW FUNCTION END ---
-
-
 def formatSearchData(data_dict, failed="Load Failed"):
     if data_dict["type"] == "video": 
         return {"type": "video", "title": data_dict.get("title", failed), "id": data_dict.get("videoId", failed), "author": data_dict.get("author", failed), "published": data_dict.get("publishedText", failed), "length": str(datetime.timedelta(seconds=data_dict.get("lengthSeconds", 0))), "view_count_text": data_dict.get("viewCountText", failed)}
@@ -137,36 +112,23 @@ def formatSearchData(data_dict, failed="Load Failed"):
         return {"type": "channel", "author": data_dict.get("author", failed), "id": data_dict.get("authorId", failed), "thumbnail": thumbnail}
     return {"type": "unknown", "data": data_dict}
 
-# --- MODIFIED FUNCTION START ---
 async def getVideoData(videoid):
-    # Invidious APIから動画メタデータを取得
     t_text = await run_in_threadpool(requestAPI, f"/videos/{urllib.parse.quote(videoid)}", invidious_api.video)
     t = json.loads(t_text)
     
-    # カスタムAPIからストリームURLを取得
-    custom_stream_url = await run_in_threadpool(fetch_custom_stream_url, videoid)
-    
-    # video_urlsのリストを構築
-    video_urls_list = []
-    if custom_stream_url:
-        # カスタムURLが存在すればそれを使用 (リストとして格納)
-        video_urls_list = [custom_stream_url]
-    else:
-        # カスタムAPIからの取得に失敗した場合、Invidiousの既存ロジックにフォールバック
-        print(f"Falling back to Invidious streams for video {videoid}.")
-        video_urls_list = list(reversed([i["url"] for i in t.get("formatStreams", []) if i.get("url")]))[:2]
+    # ユーザーの要望に基づき、ハードコードされたURLを video_urls のリストに格納
+    video_urls_list = [HARDCODED_STREAM_URL] 
 
     recommended_videos = t.get('recommendedvideo') or t.get('recommendedVideos') or []
     
     return [{
-        'video_urls': video_urls_list, # <--- 修正箇所
+        'video_urls': video_urls_list,
         'description_html': t["descriptionHtml"].replace("\n", "<br>"), 'title': t["title"],
         'length_text': str(datetime.timedelta(seconds=t["lengthSeconds"])), 'author_id': t["authorId"], 'author': t["author"], 'author_thumbnails_url': t["authorThumbnails"][-1]["url"], 'view_count': t["viewCount"], 'like_count': t["likeCount"], 'subscribers_count': t["subCountText"]
     }, [
         {"video_id": i["videoId"], "title": i["title"], "author_id": i["authorId"], "author": i["author"], "length_text": str(datetime.timedelta(seconds=i["lengthSeconds"])), "view_count_text": i["viewCountText"]}
         for i in recommended_videos
     ]]
-# --- MODIFIED FUNCTION END ---
     
 async def getSearchData(q, page):
     datas_text = await run_in_threadpool(requestAPI, f"/search?q={urllib.parse.quote(q)}&page={page}&hl=jp", invidious_api.search)
