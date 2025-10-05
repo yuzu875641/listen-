@@ -28,6 +28,7 @@ failed = "Load Failed"
 invidious_api_data = {
     'video': [
         'https://yt.omada.cafe/',
+        'https://inv.perditum.com/',
         'https://iv.melmac.space/', 
     ], 
     'playlist': [
