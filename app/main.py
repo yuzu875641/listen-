@@ -40,6 +40,7 @@ invidious_api_data = {
         'https://iv.melmac.space/',
     ], 
     'search': [
+        'https://invid-api.poketube.fun/',
         'https://invidious.ducks.party/',
         'https://super8.absturztau.be/',
         'https://invidious.nikkosphere.com/',
@@ -48,6 +49,7 @@ invidious_api_data = {
         'https://iv.melmac.space/',
     ], 
     'channel': [
+        'https://invid-api.poketube.fun/',
         'https://invidious.ducks.party/',
         'https://super8.absturztau.be/',
         'https://invidious.nikkosphere.com/',
