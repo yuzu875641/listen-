@@ -68,7 +68,6 @@ invidious_api_data = {
 }
 
 class InvidiousAPI:
-    # 修正済み: selfself から self に変更
     def __init__(self):
         self.all = invidious_api_data
         self.video = list(self.all['video']); 
@@ -102,6 +101,20 @@ def requestAPI(path, api_urls):
             
     raise APITimeoutError("All available API instances failed to respond.")
 
+# --- 追加: カスタムストリームAPIの関数 ---
+def getStreamData(videoid):
+    """カスタムAPIから動画ストリームデータを取得する"""
+    api_url = f"https://siawaseok.duckdns.org/api/stream/{videoid}/type2"
+    try:
+        res = requests.get(api_url, headers=getRandomUserAgent(), timeout=max_api_wait_time)
+        res.raise_for_status() # HTTPエラーを確認
+        if isJSON(res.text):
+            return json.loads(res.text)
+    except requests.exceptions.RequestException as e:
+        print(f"Stream API request failed: {e}")
+    
+    return None
+
 def formatSearchData(data_dict, failed="Load Failed"):
     if data_dict["type"] == "video": 
         return {"type": "video", "title": data_dict.get("title", failed), "id": data_dict.get("videoId", failed), "author": data_dict.get("author", failed), "published": data_dict.get("publishedText", failed), "length": str(datetime.timedelta(seconds=data_dict.get("lengthSeconds", 0))), "view_count_text": data_dict.get("viewCountText", failed)}
@@ -117,8 +130,39 @@ async def getVideoData(videoid):
     t_text = await run_in_threadpool(requestAPI, f"/videos/{urllib.parse.quote(videoid)}", invidious_api.video)
     t = json.loads(t_text)
     recommended_videos = t.get('recommendedvideo') or t.get('recommendedVideos') or []
+    
+    # --- 修正: ストリームデータを取得し、videourlsとm3u8urlsをテンプレートに渡す ---
+    stream_data = await run_in_threadpool(getStreamData, videoid)
+    
+    # videourls（プログレッシブダウンロード用）の準備
+    # 以前のコードの互換性のために、フォールバックとしてInvidiousのURLを使用
+    # m3u8があればそちらを優先するため、ここでは空リストまたは最低限のフォールバックとしておく
+    fallback_videourls = list(reversed([i["url"] for i in t["formatStreams"]]))[:2]
+    
+    # 画質データを整理
+    quality_streams = {}
+    if stream_data and 'videourl' in stream_data:
+        # videourl (MP4/WebM) と m3u8 (HLS) の両方から画質URLを抽出する
+        for quality, data in stream_data.get('videourl', {}).items():
+            if 'video' in data and 'audio' in data:
+                # video + audio の組み合わせ (HLS.jsが不要な場合もあるが、ここではシンプルにHLS.jsに任せる)
+                # m3u8がある場合はm3u8を優先するため、ここではvideourlを直接使うデータとしては渡さない
+                pass
+        
+        # m3u8ストリームの収集
+        for quality, data in stream_data.get('m3u8', {}).items():
+            if 'url' in data and 'url' in data['url']:
+                 quality_streams[quality] = data['url']['url']
+                 
+    # HLSストリームがない場合のフォールバックとしてInvidiousのURLを使用
+    if not quality_streams:
+        # 以前のコードで使用していた videourls をそのまま渡す
+        pass
+
     return [{
-        'video_urls': list(reversed([i["url"] for i in t["formatStreams"]]))[:2],
+        # 修正：videourlsはHLSストリームを優先するため、空または最低限のリストにする
+        'video_urls': fallback_videourls, 
+        'quality_streams': quality_streams, 
         'description_html': t["descriptionHtml"].replace("\n", "<br>"), 'title': t["title"],
         'length_text': str(datetime.timedelta(seconds=t["lengthSeconds"])), 'author_id': t["authorId"], 'author': t["author"], 'author_thumbnails_url': t["authorThumbnails"][-1]["url"], 'view_count': t["viewCount"], 'like_count': t["likeCount"], 'subscribers_count': t["subCountText"]
     }, [
@@ -183,7 +227,7 @@ async def home(request: Request, proxy: Union[str] = Cookie(None)):
 async def video(v:str, request: Request, proxy: Union[str] = Cookie(None)):
     video_data = await getVideoData(v)
     return templates.TemplateResponse('video.html', {
-        "request": request, "videoid": v, "videourls": video_data[0]['video_urls'], "description": video_data[0]['description_html'], "video_title": video_data[0]['title'], "author_id": video_data[0]['author_id'], "author_icon": video_data[0]['author_thumbnails_url'], "author": video_data[0]['author'], "length_text": video_data[0]['length_text'], "view_count": video_data[0]['view_count'], "like_count": video_data[0]['like_count'], "subscribers_count": video_data[0]['subscribers_count'], "recommended_videos": video_data[1], "proxy":proxy
+        "request": request, "videoid": v, "videourls": video_data[0]['video_urls'], "quality_streams": video_data[0]['quality_streams'], "description": video_data[0]['description_html'], "video_title": video_data[0]['title'], "author_id": video_data[0]['author_id'], "author_icon": video_data[0]['author_thumbnails_url'], "author": video_data[0]['author'], "length_text": video_data[0]['length_text'], "view_count": video_data[0]['view_count'], "like_count": video_data[0]['like_count'], "subscribers_count": video_data[0]['subscribers_count'], "recommended_videos": video_data[1], "proxy":proxy
     })
 
 @app.get("/search", response_class=HTMLResponse)
@@ -198,7 +242,7 @@ async def hashtag_search(tag:str):
 @app.get("/channel/{channelid}", response_class=HTMLResponse)
 async def channel(channelid:str, request: Request, proxy: Union[str] = Cookie(None)):
     t = await getChannelData(channelid)
-    return templates.TemplateResponse("channel.html", {"request": request, "results": t[0], "channel_name": t[1]["channel_name"], "channel_icon": t[1]["channel_icon"], "channel_profile": t[1]["channel_profile"], "cover_img_url": t[1]["author_banner"], "subscribers_count": t[1]["subscribers_count"], "proxy": proxy})
+    return templates.TemplateResponse("channel.html", {"request": request, "results": t[0], "channel_name": t[1]["channel_name"], "channel_icon": t[1]["channel_icon"], "channel_profile": t[1]["channel_profile"], "cover_img_url": t[1]["author_banner"], "subscribers_count": t[1]["subscribers_count"], "tags": t[1]["tags"], "proxy": proxy})
 
 @app.get("/playlist", response_class=HTMLResponse)
 async def playlist(list_id:str, request: Request, page:Union[int, None]=1, proxy: Union[str] = Cookie(None)):
