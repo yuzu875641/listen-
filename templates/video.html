@@ -14,18 +14,12 @@
                 style="padding: 8px 15px; cursor: pointer; border: 1px solid var(--yt-sub-text); color: var(--yt-text); background-color: var(--yt-bg);">
                 YT再生
             </button>
-            
-            {# 変更点2: 画質選択機能を削除 #}
-            {# <div id="quality-selector" ... は削除されました #}
         </div>
 
         <div id="yuzutube-player" style="display: block; width: 100%; aspect-ratio: 16/9; background-color: black; position: relative; overflow: hidden; border-radius: 8px;">
-            {# 動画の読み込み失敗時のメッセージを扱うためのコンテナ #}
-            <div id="video-load-message" style="color: white; display: flex; align-items: center; justify-content: center; height: 100%; font-size: 18px; position: absolute; top: 0; left: 0; width: 100%; z-index: 10; background-color: rgba(0, 0, 0, 0.8); display: none;">
-                🔄 **動画ストリームを読み込み中... 少しお待ちください。**
-            </div>
+            {# 動画の読み込みメッセージのコンテナを削除しました #}
             
-            {# 変更点1 & 3: Iframeを削除し、videoタグに変更。videourlsリストを使用 #}
+            {# videoタグに変更し、videourlsリストを使用 #}
             <video style="outline:none;width:100%; height: 100%;" playsinline="" 
                    poster="/thumbnail?v={{ videoid }}" 
                    id="player" 
@@ -36,7 +30,6 @@
                 {% for videourl in videourls%}
                     <source src="{{ videourl }}">
                 {% endfor %}
-                {# ブラウザがvideoタグをサポートしていない場合のフォールバック #}
                 お使いのブラウザは動画再生に対応していません。
             </video>
         </div>
@@ -99,11 +92,9 @@
 </div>
 
 <script>
-    // グローバルなタイマーIDを保持
-    let loadTimer;
+    // loadTimer、loadMessage、および関連ロジックを削除しました
 
     function loadComments(videoId) {
-        // ... (コメントロード関数は変更なし) ...
         const commentList = document.getElementById('comment-list');
         commentList.innerHTML = '<div style="color: var(--yt-sub-text);">コメントを読み込み中...</div>';
         fetch(`/comments?v=${videoId}`)
@@ -130,8 +121,7 @@
         const youtubePlayer = document.getElementById('youtube-embed-player');
         const yuzuBtn = document.getElementById('yuzu-btn');
         const youtubeBtn = document.getElementById('youtube-btn');
-        const loadMessage = document.getElementById('video-load-message');
-        const videoElement = document.getElementById('player'); // 追加: video要素を取得
+        // loadMessageの取得と制御ロジックを削除しました
 
         if (playerId === 'yuzutube-player') {
             yuzuPlayer.style.display = 'block';
@@ -139,21 +129,8 @@
             
             yuzuBtn.style.backgroundColor = 'var(--yt-light-dark)';
             youtubeBtn.style.backgroundColor = 'var(--yt-bg)';
-            // qualitySelectorの表示制御ロジックは削除されました
-
-            // プレイヤーに切り替えた際、すぐにロードメッセージを短時間表示
-            loadMessage.innerHTML = '🔄 **動画ストリームを読み込み中... 少しお待ちください。**';
-            loadMessage.style.display = 'flex';
             
-            // タイマーを設定し、一定時間後に非表示にする (仮のロード完了)
-            clearTimeout(loadTimer);
-            loadTimer = setTimeout(() => {
-                loadMessage.style.display = 'none'; 
-            }, 3000); // 3秒間メッセージを表示
-            
-            // **補足**: videoタグの場合、`loadMessage.style.display = 'none'` を
-            // 適切な `video` イベント (`loadeddata` や `canplay` など) にフックすることで、
-            // より正確にロード完了を検出できますが、今回はタイマーを維持します。
+            // ロードメッセージの表示ロジックを削除しました
             
         } else {
             yuzuPlayer.style.display = 'none';
@@ -161,49 +138,17 @@
             
             yuzuBtn.style.backgroundColor = 'var(--yt-bg)';
             youtubeBtn.style.backgroundColor = 'var(--yt-light-dark)';
-            // qualitySelectorの表示制御ロジックは削除されました
             
-            // YouTube埋め込みに切り替えた際、ロードメッセージを非表示
-            clearTimeout(loadTimer);
-            loadMessage.style.display = 'none';
+            // ロードメッセージの非表示ロジックを削除しました
         }
     }
-
-    /**
-     * 新しいitagに基づいてストリームURLを更新し、iframeをリロードする関数 (削除されました)
-     */
-    // function changeQuality(itag, videoId) { ... } は削除されました
     
     // ページロード時の初期設定
     document.addEventListener('DOMContentLoaded', () => {
         const videoId = '{{ videoid }}';
         loadComments(videoId);
         
-        // 初回ロード時もメッセージを表示
-        const loadMessage = document.getElementById('video-load-message');
-        const videoElement = document.getElementById('player'); // video要素を取得
-        
-        loadMessage.innerHTML = '🔄 **動画ストリームを読み込み中... 少しお待ちください。**';
-        loadMessage.style.display = 'flex';
-        
-        // videoタグのイベントハンドラ: 動画のフレームがロードされたらメッセージを非表示
-        const handleVideoLoad = () => {
-            clearTimeout(loadTimer);
-            loadMessage.style.display = 'none';
-            videoElement.removeEventListener('loadeddata', handleVideoLoad);
-            videoElement.removeEventListener('error', handleVideoLoad);
-        };
-        
-        // 'loadeddata' または 'error' イベントでメッセージを非表示に
-        videoElement.addEventListener('loadeddata', handleVideoLoad);
-        videoElement.addEventListener('error', handleVideoLoad);
-
-        // フォールバックとして、3秒後に強制的に非表示にするタイマーを設定
-        loadTimer = setTimeout(() => {
-            loadMessage.style.display = 'none'; 
-            videoElement.removeEventListener('loadeddata', handleVideoLoad);
-            videoElement.removeEventListener('error', handleVideoLoad);
-        }, 3000); 
+        // 初回ロード時のメッセージ表示・制御ロジックをすべて削除しました
     });
 </script>
 {% endblock %}
