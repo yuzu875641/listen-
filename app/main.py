@@ -133,8 +133,6 @@ async def getVideoData(videoid):
     # InvidiousのフォールバックURL
     fallback_videourls = list(reversed([i["url"] for i in t["formatStreams"]]))[:2]
     
-    # quality_streamsの取得ロジックは/api/streamで実行するため、ここでは省略
-    
     # データを整理して返す
     return [{
         'video_urls': fallback_videourls, 
@@ -190,11 +188,11 @@ app.mount(
     name="static"
 )
 
-# 🔴 新しいストリーム取得APIエンドポイント 🔴
+# 🔴 ストリーム取得APIエンドポイント: 1080p URLを抽出して返す
 @app.get("/api/stream/{videoid}")
 async def stream_api(videoid: str):
     """
-    指定された動画IDのストリームデータをカスタムAPIから取得し、JSONで返す。
+    指定された動画IDのストリームデータをカスタムAPIから取得し、1080pのURLをJSONで返す。
     """
     stream_data = await run_in_threadpool(getStreamData, videoid)
     
@@ -202,11 +200,11 @@ async def stream_api(videoid: str):
     if stream_data and 'm3u8' in stream_data:
         # m3u8ストリームの収集
         for quality, data in stream_data.get('m3u8', {}).items():
-            # type2.jsonの構造: data['url']['url']
+            # type2.jsonの構造からURLを抽出
             if isinstance(data, dict) and 'url' in data and isinstance(data['url'], dict) and 'url' in data['url']:
                  quality_streams[quality] = data['url']['url']
                  
-    # 1080pのURLのみを返す
+    # 最高画質である1080pのURLのみを返す
     high_quality_url = quality_streams.get('1080p', '')
     
     return {"high_quality_url": high_quality_url}
@@ -223,12 +221,12 @@ async def home(request: Request, proxy: Union[str] = Cookie(None)):
 async def video(v:str, request: Request, proxy: Union[str] = Cookie(None)):
     video_data = await getVideoData(v)
     
-    # ページロード時には高画質URLは渡さない
+    # ページロード時には高画質URLは渡さない（フロントエンドのボタンクリックで取得する）
     high_quality_url = ""
     
     return templates.TemplateResponse('video.html', {
         "request": request, "videoid": v, "videourls": video_data[0]['video_urls'], 
-        "high_quality_url": high_quality_url, # 常に空文字列で渡す（使用されないがテンプレートの変数として残す）
+        "high_quality_url": high_quality_url,
         "description": video_data[0]['description_html'], "video_title": video_data[0]['title'], "author_id": video_data[0]['author_id'], "author_icon": video_data[0]['author_thumbnails_url'], "author": video_data[0]['author'], "length_text": video_data[0]['length_text'], "view_count": video_data[0]['view_count'], "like_count": video_data[0]['like_count'], "subscribers_count": video_data[0]['subscribers_count'], "recommended_videos": video_data[1], "proxy":proxy
     })
 
