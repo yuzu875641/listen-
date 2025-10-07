@@ -16,7 +16,7 @@
                 通常再生
             </button>
             
-            {# 🔴 ボタンを常に表示し、クリックイベントでURLを取得 🔴 #}
+            {# 🔴 ボタンは常に表示 🔴 #}
             <button id="high-quality-btn" 
                     onclick="fetchAndShowHighQuality('{{ videoid }}');" 
                     style="padding: 8px 15px; cursor: pointer; border: 1px solid var(--yt-sub-text); color: var(--yt-text); background-color: var(--yt-bg); opacity: 1.0;">
@@ -105,7 +105,6 @@
 
 <script>
     let hls = null;
-    // 取得したURLをキャッシュするための変数
     let cachedHighQualityUrl = null; 
     const highQualityBtn = document.getElementById('high-quality-btn');
     const videoElement = document.getElementById('player');
@@ -140,7 +139,6 @@
         
         if (!url || !Hls.isSupported()) {
             console.error("HLS URLなし、またはHLSがサポートされていません。通常再生に戻します。");
-            // HLS再生失敗時、通常再生にフォールバック
             showPlayer('yuzutube-player', 'normal'); 
             return;
         }
@@ -177,6 +175,7 @@
         const youtubePlayer = document.getElementById('youtube-embed-player');
         const yuzuBtn = document.getElementById('yuzu-btn');
         const youtubeBtn = document.getElementById('youtube-btn');
+        const youtubeIframe = document.getElementById('youtube-iframe');
         
         // すべてのボタンを非アクティブな色にリセット
         yuzuBtn.style.backgroundColor = 'var(--yt-bg)';
@@ -221,7 +220,7 @@
                 yuzuBtn.style.backgroundColor = 'var(--yt-light-dark)';
             }
             
-            // 通常再生の動画を再開
+            // 動画を再開
             if (videoElement) {
                 videoElement.play().catch(error => {
                     // Autoplay prevented
@@ -273,16 +272,19 @@
 
         if (!urlToPlay) {
             try {
+                // 新しいAPIエンドポイントを呼び出し
                 const response = await fetch(`/api/stream/${videoId}`);
                 if (!response.ok) throw new Error('ストリームAPIの呼び出しに失敗');
                 
                 const data = await response.json();
+                // 応答から1080pのURLを取得
                 urlToPlay = data.high_quality_url;
                 
                 if (urlToPlay) {
                     cachedHighQualityUrl = urlToPlay;
                 } else {
-                    alert('高画質ストリームURLを取得できませんでした。通常再生に戻ります。');
+                    // URLが取得できなかった場合は失敗
+                    alert('最高画質ストリームURLを取得できませんでした。通常再生に戻ります。');
                     highQualityBtn.textContent = '高画質化再生 (1080p)';
                     highQualityBtn.disabled = false;
                     highQualityBtn.style.opacity = 1.0;
