@@ -211,8 +211,14 @@ async def home(request: Request, proxy: Union[str] = Cookie(None)):
 @app.get('/watch', response_class=HTMLResponse)
 async def video(v:str, request: Request, proxy: Union[str] = Cookie(None)):
     video_data = await getVideoData(v)
+    
+    quality_streams = video_data[0]['quality_streams']
+    
     return templates.TemplateResponse('video.html', {
-        "request": request, "videoid": v, "videourls": video_data[0]['video_urls'], "quality_streams": video_data[0]['quality_streams'], "description": video_data[0]['description_html'], "video_title": video_data[0]['title'], "author_id": video_data[0]['author_id'], "author_icon": video_data[0]['author_thumbnails_url'], "author": video_data[0]['author'], "length_text": video_data[0]['length_text'], "view_count": video_data[0]['view_count'], "like_count": video_data[0]['like_count'], "subscribers_count": video_data[0]['subscribers_count'], "recommended_videos": video_data[1], "proxy":proxy
+        "request": request, "videoid": v, "videourls": video_data[0]['video_urls'], 
+        "quality_streams": quality_streams, # テンプレートに渡す
+        "quality_streams_json": json.dumps(quality_streams), # JSに渡すためにJSON文字列として渡す
+        "description": video_data[0]['description_html'], "video_title": video_data[0]['title'], "author_id": video_data[0]['author_id'], "author_icon": video_data[0]['author_thumbnails_url'], "author": video_data[0]['author'], "length_text": video_data[0]['length_text'], "view_count": video_data[0]['view_count'], "like_count": video_data[0]['like_count'], "subscribers_count": video_data[0]['subscribers_count'], "recommended_videos": video_data[1], "proxy":proxy
     })
 
 @app.get("/search", response_class=HTMLResponse)
@@ -227,7 +233,7 @@ async def hashtag_search(tag:str):
 @app.get("/channel/{channelid}", response_class=HTMLResponse)
 async def channel(channelid:str, request: Request, proxy: Union[str] = Cookie(None)):
     t = await getChannelData(channelid)
-    return templates.TemplateResponse("channel.html", {"request": request, "results": t[0], "channel_name": t[1]["channel_name"], "channel_icon": t[1]["channel_icon"], "channel_profile": t[1]["channel_profile"], "cover_img_url": t[1]["author_banner"], "subscribers_count": t[1]["subscribers_count"], "tags": t[1]["tags"], "proxy": proxy})
+    return templates.TemplateResponse("channel.html", {"request": request, "results": t[0], "channel_name": t[1]["channel_name"], "channel_icon": t[1]["channel_icon"], "channel_profile": t[1]["descriptionHtml"], "cover_img_url": t[1]["author_banner"], "subscribers_count": t[1]["subscribers_count"], "tags": t[1]["tags"], "proxy": proxy})
 
 @app.get("/playlist", response_class=HTMLResponse)
 async def playlist(list_id:str, request: Request, page:Union[int, None]=1, proxy: Union[str] = Cookie(None)):
