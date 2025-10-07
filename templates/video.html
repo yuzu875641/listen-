@@ -15,54 +15,8 @@
                 YT再生
             </button>
             
-            <div id="quality-selector" style="display: block; margin-left: 20px;">
-                <span style="color: var(--yt-text); margin-right: 5px;">画質:</span>
-                <select id="itag-select" onchange="changeQuality(this.value, '{{ videoid }}');" 
-                        style="padding: 5px; border: 1px solid var(--yt-sub-text); background-color: var(--yt-light-dark); color: var(--yt-text); border-radius: 4px;">
-                    {# itagのオプションリスト。91をデフォルトとして選択 #}
-                    <option value="5">240p FLV (5 - 統合)</option>
-<option value="17">144p 3GP (17 - 統合)</option>
-<option value="18" selected>360p (18 - 統合)</option>
-<option value="22">720p (22 - 統合)</option>
-<option value="37">1080p (37 - 統合)</option>
-
-<option value="91">144p HLS (91)</option>
-<option value="92">240p HLS (92)</option>
-<option value="93">360p HLS (93)</option>
-<option value="94">480p HLS (94)</option>
-<option value="95">720p HLS (95)</option>
-<option value="96">1080p HLS (96)</option>
-
-<option value="160">144p Video Only (160)</option>
-<option value="133">240p Video Only (133)</option>
-<option value="134">360p Video Only (134)</option>
-<option value="135">480p Video Only (135)</option>
-<option value="136">720p Video Only (136)</option>
-<option value="298">720p60 Video Only (298)</option>
-<option value="137">1080p Video Only (137)</option>
-<option value="299">1080p60 Video Only (299)</option>
-<option value="264">1440p Video Only (264)</option>
-<option value="266">2160p Video Only (266)</option>
-
-<option value="242">240p WebM Video Only (242)</option>
-<option value="243">360p WebM Video Only (243)</option>
-<option value="244">480p WebM Video Only (244)</option>
-<option value="247">720p WebM Video Only (247)</option>
-<option value="302">720p60 WebM Video Only (302)</option>
-<option value="248">1080p WebM Video Only (248)</option>
-<option value="303">1080p60 WebM Video Only (303)</option>
-<option value="271">1440p WebM Video Only (271)</option>
-<option value="308">1440p60 WebM Video Only (308)</option>
-<option value="313">2160p WebM Video Only (313)</option>
-<option value="315">2160p60 WebM Video Only (315)</option>
-
-<option value="139">Audio Only 48k AAC (139)</option>
-<option value="140">Audio Only 128k AAC (140)</option>
-<option value="141">Audio Only 256k AAC (141)</option>
-<option value="251">Audio Only 160k Opus (251)</option>
-　　　
-                </select>
-            </div>
+            {# 変更点2: 画質選択機能を削除 #}
+            {# <div id="quality-selector" ... は削除されました #}
         </div>
 
         <div id="yuzutube-player" style="display: block; width: 100%; aspect-ratio: 16/9; background-color: black; position: relative; overflow: hidden; border-radius: 8px;">
@@ -71,14 +25,20 @@
                 🔄 **動画ストリームを読み込み中... 少しお待ちください。**
             </div>
             
-            {# Iframeを使用して動画ストリームURLを埋め込み、全画面を許可 #}
-            <iframe id="stream-iframe"
-                src="https://pooo-eta.vercel.app/watch?v={{ videoid }}&itag=18" 
-                frameborder="0"
-                allow="autoplay; fullscreen; picture-in-picture" 
-                allowfullscreen 
-                style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;">
-            </iframe>
+            {# 変更点1 & 3: Iframeを削除し、videoタグに変更。videourlsリストを使用 #}
+            <video style="outline:none;width:100%; height: 100%;" playsinline="" 
+                   poster="/thumbnail?v={{ videoid }}" 
+                   id="player" 
+                   class="video-js w-full" 
+                   controls="" 
+                   loadedmetadata="settime()" 
+                   loop="">
+                {% for videourl in videourls%}
+                    <source src="{{ videourl }}">
+                {% endfor %}
+                {# ブラウザがvideoタグをサポートしていない場合のフォールバック #}
+                お使いのブラウザは動画再生に対応していません。
+            </video>
         </div>
 
         <div id="youtube-embed-player" style="display: none; width: 100%; aspect-ratio: 16/9; position: relative; overflow: hidden; border-radius: 8px;">
@@ -170,8 +130,8 @@
         const youtubePlayer = document.getElementById('youtube-embed-player');
         const yuzuBtn = document.getElementById('yuzu-btn');
         const youtubeBtn = document.getElementById('youtube-btn');
-        const qualitySelector = document.getElementById('quality-selector');
         const loadMessage = document.getElementById('video-load-message');
+        const videoElement = document.getElementById('player'); // 追加: video要素を取得
 
         if (playerId === 'yuzutube-player') {
             yuzuPlayer.style.display = 'block';
@@ -179,17 +139,21 @@
             
             yuzuBtn.style.backgroundColor = 'var(--yt-light-dark)';
             youtubeBtn.style.backgroundColor = 'var(--yt-bg)';
-            qualitySelector.style.display = 'block';
+            // qualitySelectorの表示制御ロジックは削除されました
 
-            // ★ プレイヤーに切り替えた際、すぐにロードメッセージを短時間表示
+            // プレイヤーに切り替えた際、すぐにロードメッセージを短時間表示
             loadMessage.innerHTML = '🔄 **動画ストリームを読み込み中... 少しお待ちください。**';
             loadMessage.style.display = 'flex';
             
-            // ★ タイマーを設定し、一定時間後に非表示にする (仮のロード完了)
+            // タイマーを設定し、一定時間後に非表示にする (仮のロード完了)
             clearTimeout(loadTimer);
             loadTimer = setTimeout(() => {
                 loadMessage.style.display = 'none'; 
             }, 3000); // 3秒間メッセージを表示
+            
+            // **補足**: videoタグの場合、`loadMessage.style.display = 'none'` を
+            // 適切な `video` イベント (`loadeddata` や `canplay` など) にフックすることで、
+            // より正確にロード完了を検出できますが、今回はタイマーを維持します。
             
         } else {
             yuzuPlayer.style.display = 'none';
@@ -197,7 +161,7 @@
             
             yuzuBtn.style.backgroundColor = 'var(--yt-bg)';
             youtubeBtn.style.backgroundColor = 'var(--yt-light-dark)';
-            qualitySelector.style.display = 'none';
+            // qualitySelectorの表示制御ロジックは削除されました
             
             // YouTube埋め込みに切り替えた際、ロードメッセージを非表示
             clearTimeout(loadTimer);
@@ -206,38 +170,9 @@
     }
 
     /**
-     * 新しいitagに基づいてストリームURLを更新し、iframeをリロードする関数
+     * 新しいitagに基づいてストリームURLを更新し、iframeをリロードする関数 (削除されました)
      */
-    function changeQuality(itag, videoId) {
-        const streamIframe = document.getElementById('stream-iframe');
-        const loadMessage = document.getElementById('video-load-message');
-        
-        // 新しいURLを生成
-        const newUrl = `https://pooo-eta.vercel.app/watch?v=${videoId}&itag=${itag}`;
-        
-        if (streamIframe) {
-            // ★ ロード開始時にメッセージを表示
-            loadMessage.innerHTML = '🔄 **画質を変更中... ロードに時間がかかる場合があります。**';
-            loadMessage.style.display = 'flex';
-            
-            // src属性を更新することで、Iframeを再ロード
-            streamIframe.src = newUrl;
-            
-            // ★ タイマーを設定し、一定時間後に非表示にする
-            clearTimeout(loadTimer);
-            loadTimer = setTimeout(() => {
-                loadMessage.style.display = 'none'; 
-            }, 5000); // 5秒間メッセージを表示 (画質変更は時間がかかる可能性があるため長めに設定)
-
-            // ★ Iframeのonloadイベントを使って、ロード完了を待つ (ただし、動画の読み込み完了とは限らない)
-            streamIframe.onload = () => {
-                // タイマーをキャンセルし、メッセージを非表示にする
-                clearTimeout(loadTimer);
-                loadMessage.style.display = 'none';
-                streamIframe.onload = null; // イベントをクリア
-            };
-        }
-    }
+    // function changeQuality(itag, videoId) { ... } は削除されました
     
     // ページロード時の初期設定
     document.addEventListener('DOMContentLoaded', () => {
@@ -246,22 +181,28 @@
         
         // 初回ロード時もメッセージを表示
         const loadMessage = document.getElementById('video-load-message');
-        const streamIframe = document.getElementById('stream-iframe');
+        const videoElement = document.getElementById('player'); // video要素を取得
         
         loadMessage.innerHTML = '🔄 **動画ストリームを読み込み中... 少しお待ちください。**';
         loadMessage.style.display = 'flex';
         
-        // ★ Iframeのonloadイベントを設定 (初回ロード時)
-        streamIframe.onload = () => {
+        // videoタグのイベントハンドラ: 動画のフレームがロードされたらメッセージを非表示
+        const handleVideoLoad = () => {
             clearTimeout(loadTimer);
             loadMessage.style.display = 'none';
-            streamIframe.onload = null; // イベントをクリア
+            videoElement.removeEventListener('loadeddata', handleVideoLoad);
+            videoElement.removeEventListener('error', handleVideoLoad);
         };
+        
+        // 'loadeddata' または 'error' イベントでメッセージを非表示に
+        videoElement.addEventListener('loadeddata', handleVideoLoad);
+        videoElement.addEventListener('error', handleVideoLoad);
 
-        // ★ フォールバックとして、3秒後に強制的に非表示にするタイマーを設定
+        // フォールバックとして、3秒後に強制的に非表示にするタイマーを設定
         loadTimer = setTimeout(() => {
             loadMessage.style.display = 'none'; 
-            streamIframe.onload = null; // イベントをクリア
+            videoElement.removeEventListener('loadeddata', handleVideoLoad);
+            videoElement.removeEventListener('error', handleVideoLoad);
         }, 3000); 
     });
 </script>
