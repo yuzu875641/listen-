@@ -188,25 +188,32 @@ app.mount(
     name="static"
 )
 
-# 🔴 ストリーム取得APIエンドポイント: 1080p URLを抽出して返す
+# 🔴 ストリーム取得APIエンドポイント: /itag/96/を含む1080p URLを抽出して返す
 @app.get("/api/stream/{videoid}")
 async def stream_api(videoid: str):
     """
-    指定された動画IDのストリームデータをカスタムAPIから取得し、1080pのURLをJSONで返す。
+    指定された動画IDのストリームデータをカスタムAPIから取得し、/itag/96/を含むURLをJSONで返す。
     """
     stream_data = await run_in_threadpool(getStreamData, videoid)
     
-    quality_streams = {}
-    if stream_data and 'm3u8' in stream_data:
-        # m3u8ストリームの収集
-        for quality, data in stream_data.get('m3u8', {}).items():
-            # type2.jsonの構造からURLを抽出
-            if isinstance(data, dict) and 'url' in data and isinstance(data['url'], dict) and 'url' in data['url']:
-                 quality_streams[quality] = data['url']['url']
-                 
-    # 最高画質である1080pのURLのみを返す
-    high_quality_url = quality_streams.get('1080p', '')
+    high_quality_url = ""
     
+    if stream_data and 'm3u8' in stream_data:
+        # m3u8ストリーム内のすべてのURLをチェック
+        for quality, data in stream_data.get('m3u8', {}).items():
+            # type2.jsonの構造: data['url']['url']からURLを抽出
+            if isinstance(data, dict) and 'url' in data and isinstance(data['url'], dict) and 'url' in data['url']:
+                 url = data['url']['url']
+                 
+                 # 🔴 ユーザー要求: /itag/96/を含むURLを最優先で最高画質とする 🔴
+                 if "/itag/96/" in url:
+                     high_quality_url = url
+                     break # 見つかったのでループを終了
+                 # 念のため、キーが '1080p' であるものも保持しておく（/itag/96/がない場合のフォールバック）
+                 elif quality == '1080p' and not high_quality_url:
+                     high_quality_url = url
+                 
+    # /itag/96/または'1080p'キーのURLを返す
     return {"high_quality_url": high_quality_url}
 
 
