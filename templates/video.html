@@ -20,7 +20,7 @@
                 YT再生
             </button>
             
-            {# 画質選択ドロップダウンの追加 #}
+        
             {% if quality_streams %}
             <select id="quality-selector" onchange="changeQuality(this.value);"
                     style="padding: 8px 15px; cursor: pointer; border: 1px solid var(--yt-sub-text); color: var(--yt-text); background-color: var(--yt-bg); margin-left: auto;">
@@ -199,7 +199,7 @@
         if (playerId === 'yuzutube-player') {
             yuzuPlayer.style.display = 'block';
             youtubePlayer.style.display = 'none';
-            // 通常再生に切り替える際、画質セレクターを表示
+            // 通常再生に切り替える際、画質セレクターを表示 (データがある場合のみ)
             if (qualitySelector) qualitySelector.style.display = 'block';
             
             yuzuBtn.style.backgroundColor = 'var(--yt-light-dark)';
