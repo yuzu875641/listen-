@@ -2,6 +2,11 @@
 
 {% block title %}{{ video_title }} - yuzutube{% endblock %}
 
+{# HLS.js の読み込み (CDNを使用) #}
+{% block head %}
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+{% endblock %}
+
 {% block content %}
 <div class="watch-page-container">
     <div class="main-video-area">
@@ -14,6 +19,16 @@
                 style="padding: 8px 15px; cursor: pointer; border: 1px solid var(--yt-sub-text); color: var(--yt-text); background-color: var(--yt-bg);">
                 YT再生
             </button>
+            
+            {# 画質選択ドロップダウンの追加 #}
+            {% if quality_streams %}
+            <select id="quality-selector" onchange="changeQuality(this.value);"
+                    style="padding: 8px 15px; cursor: pointer; border: 1px solid var(--yt-sub-text); color: var(--yt-text); background-color: var(--yt-bg); margin-left: auto;">
+                {% for quality, url in quality_streams.items() %}
+                    <option value="{{ url }}" {% if loop.first %}selected{% endif %}>{{ quality }}</option>
+                {% endfor %}
+            </select>
+            {% endif %}
         </div>
 
         <div id="yuzutube-player" style="display: block; width: 100%; aspect-ratio: 16/9; background-color: black; position: relative; overflow: hidden; border-radius: 8px;">
@@ -24,9 +39,19 @@
                    controls="" 
                    loadedmetadata="settime()" 
                    loop="">
-                {% for videourl in videourls%}
-                    <source src="{{ videourl }}">
-                {% endfor %}
+                {# 最初のm3u8ストリームを初期ソースとして設定 (HLS.jsがこれをオーバーライドする) #}
+                {% if quality_streams %}
+                    {% for quality, url in quality_streams.items() %}
+                        {% if loop.first %}
+                            <source src="{{ url }}" type="application/x-mpegURL">
+                        {% endif %}
+                    {% endfor %}
+                {# HLSストリームがない場合は、従来のInvidiousのURLを使用 (フォールバック) #}
+                {% else %}
+                    {% for videourl in videourls%}
+                        <source src="{{ videourl }}">
+                    {% endfor %}
+                {% endif %}
                 お使いのブラウザは動画再生に対応していません。
             </video>
         </div>
@@ -90,6 +115,8 @@
 </div>
 
 <script>
+    let hls = null;
+
     function loadComments(videoId) {
         const commentList = document.getElementById('comment-list');
         commentList.innerHTML = '<div style="color: var(--yt-sub-text);">コメントを読み込み中...</div>';
@@ -110,6 +137,51 @@
     }
 
     /**
+     * HLS.jsを使用して動画をロードする
+     */
+    function loadHlsVideo(videoElement, url) {
+        if (hls) {
+            hls.destroy();
+        }
+        
+        if (Hls.isSupported()) {
+            hls = new Hls();
+            hls.loadSource(url);
+            hls.attachMedia(videoElement);
+            hls.on(Hls.Events.MANIFEST_PARSED, function() {
+                // 自動再生を試みる
+                videoElement.play().catch(error => {
+                    console.log("Autoplay prevented. Please click play.");
+                });
+            });
+        } else if (videoElement.canPlayType('application/vnd.apple.mpegurl')) {
+            // ネイティブHLSサポート (Safariなど)
+            videoElement.src = url;
+            videoElement.play();
+        } else {
+            // サポートされていない場合のフォールバックメッセージ
+            console.error("HLS is not supported by this browser.");
+            videoElement.src = url; // フォールバックで直接設定
+            videoElement.load();
+        }
+    }
+
+    /**
+     * 画質を変更する関数
+     */
+    function changeQuality(url) {
+        const videoElement = document.getElementById('player');
+        const currentTime = videoElement.currentTime;
+        
+        loadHlsVideo(videoElement, url);
+        
+        // 再生位置を維持する
+        hls.on(Hls.Events.MANIFEST_PARSED, function() {
+            videoElement.currentTime = currentTime;
+        });
+    }
+
+    /**
      * 動画プレーヤーを切り替え、ボタンのスタイルを更新し、非表示にする側の動画を停止する関数
      */
     function showPlayer(playerId) {
@@ -119,26 +191,34 @@
         const youtubeBtn = document.getElementById('youtube-btn');
         const videoElement = document.getElementById('player');
         const youtubeIframe = document.getElementById('youtube-iframe');
-
+        const qualitySelector = document.getElementById('quality-selector');
+        
         if (playerId === 'yuzutube-player') {
             yuzuPlayer.style.display = 'block';
             youtubePlayer.style.display = 'none';
+            if (qualitySelector) qualitySelector.style.display = 'block';
             
             yuzuBtn.style.backgroundColor = 'var(--yt-light-dark)';
             youtubeBtn.style.backgroundColor = 'var(--yt-bg)';
 
             // YT再生から通常再生に切り替える際、YTの動画を停止させる
-            // YouTube iframeのsrcをリセットすることで、動画が停止・リロードされる
             if (youtubeIframe && youtubeIframe.src) {
                 const currentSrc = youtubeIframe.src;
-                // srcをリセットし、その後すぐに元に戻すことで停止効果を得る
                 youtubeIframe.src = '';
-                youtubeIframe.src = currentSrc.replace(/&autoplay=1/, '');
+                youtubeIframe.src = currentSrc.replace(/&autoplay=1/, '').replace(/\?autoplay=1&/, '?').replace('?autoplay=1', '');
+            }
+            
+            // 通常再生の動画を再開
+            if (videoElement) {
+                videoElement.play().catch(error => {
+                    // Autoplay prevented
+                });
             }
             
         } else {
             yuzuPlayer.style.display = 'none';
             youtubePlayer.style.display = 'block';
+            if (qualitySelector) qualitySelector.style.display = 'none';
             
             yuzuBtn.style.backgroundColor = 'var(--yt-bg)';
             youtubeBtn.style.backgroundColor = 'var(--yt-light-dark)';
@@ -147,6 +227,16 @@
             if (videoElement) {
                 videoElement.pause();
             }
+            
+            // YouTube埋め込みに切り替えた際、動画を自動再生するためにsrcにautoplay=1を追加する
+            if (youtubeIframe && youtubeIframe.src) {
+                let currentSrc = youtubeIframe.src;
+                youtubeIframe.src = ''; 
+                if (!currentSrc.includes('autoplay=1')) {
+                    currentSrc += currentSrc.includes('?') ? '&autoplay=1' : '?autoplay=1';
+                }
+                youtubeIframe.src = currentSrc;
+            }
         }
     }
     
@@ -154,6 +244,17 @@
     document.addEventListener('DOMContentLoaded', () => {
         const videoId = '{{ videoid }}';
         loadComments(videoId);
+
+        const videoElement = document.getElementById('player');
+        
+        // HLS.jsの初期ロード
+        {% if quality_streams %}
+            const initialUrl = document.getElementById('quality-selector').value;
+            loadHlsVideo(videoElement, initialUrl);
+        {% else %}
+            // HLSストリームがない場合は、ブラウザに任せる
+            videoElement.load();
+        {% endif %}
     });
 </script>
 {% endblock %}
