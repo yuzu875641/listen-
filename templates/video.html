@@ -2,11 +2,6 @@
 
 {% block title %}{{ video_title }} - yuzutube{% endblock %}
 
-{# HLS.js の読み込み #}
-{% block head %}
-    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
-{% endblock %}
-
 {% block content %}
 <div class="watch-page-container">
     <div class="main-video-area">
@@ -15,14 +10,7 @@
                 style="padding: 8px 15px; cursor: pointer; border: 1px solid var(--yt-sub-text); color: var(--yt-text); background-color: var(--yt-bg);">
                 通常再生
             </button>
-            
-            {# 🔴 ボタンは常に表示 🔴 #}
-            <button id="high-quality-btn" 
-                    onclick="fetchAndShowHighQuality('{{ videoid }}');" 
-                    style="padding: 8px 15px; cursor: pointer; border: 1px solid var(--yt-sub-text); color: var(--yt-text); background-color: var(--yt-bg); opacity: 1.0;">
-                高画質化再生
-            </button>
-
+        
             <button id="youtube-btn" onclick="showPlayer('youtube-embed-player');" 
                 style="padding: 8px 15px; cursor: pointer; border: 1px solid var(--yt-sub-text); color: var(--yt-text); background-color: var(--yt-bg);">
                 YT再生
@@ -128,45 +116,6 @@
                 commentList.innerHTML = '<div style="color: red; padding: 10px;">コメントの読み込み中にエラーが発生しました。</div>';
             });
     }
-
-    /**
-     * HLS.jsを使用して動画をロードする
-     */
-    function loadHlsVideo(videoElement, url) {
-        if (hls) {
-            hls.destroy();
-        }
-        
-        if (!url || !Hls.isSupported()) {
-            console.error("HLS URLなし、またはHLSがサポートされていません。通常再生に戻します。");
-            showPlayer('yuzutube-player', 'normal'); 
-            return;
-        }
-
-        if (Hls.isSupported()) {
-            hls = new Hls();
-            hls.loadSource(url);
-            hls.attachMedia(videoElement);
-            hls.on(Hls.Events.MANIFEST_PARSED, function() {
-                videoElement.play().catch(error => {
-                    console.log("Autoplay prevented. Please click play.");
-                });
-            });
-            // HLSエラーが発生した場合も通常再生に戻す
-            hls.on(Hls.Events.ERROR, function(event, data) {
-                 if (data.fatal) {
-                     console.error("HLS Fatal Error:", data);
-                     alert('高画質ストリームの再生中にエラーが発生しました。通常再生に戻ります。');
-                     showPlayer('yuzutube-player', 'normal');
-                 }
-            });
-        } else if (videoElement.canPlayType('application/vnd.apple.mpegurl')) {
-            // ネイティブHLSサポート (Safariなど)
-            videoElement.src = url;
-            videoElement.play();
-        }
-    }
-
     /**
      * 動画プレーヤーを切り替え、ボタンのスタイルを更新し、非表示にする側の動画を停止する関数
      */
@@ -195,8 +144,6 @@
             
             // --- 再生モードの分岐処理 ---
             if (mode === 'high_quality' && highQualityUrl) {
-                // 1. 高画質化再生
-                loadHlsVideo(videoElement, highQualityUrl);
                 
                 // ボタンのスタイル更新
                 if (highQualityBtn) highQualityBtn.style.backgroundColor = 'var(--yt-light-dark)';
@@ -204,11 +151,6 @@
             } else {
                 // 2. 通常再生 (フォールバックURLを使用)
                 
-                // HLSインスタンスの破棄
-                if (hls) {
-                    hls.destroy();
-                    hls = null;
-                }
                 // 既存のソースURLをリセットしてブラウザに再ロードさせる
                 const firstSource = videoElement.querySelector('source');
                 if (firstSource) {
@@ -237,11 +179,6 @@
             // 通常再生の動画を停止
             if (videoElement) {
                 videoElement.pause();
-                // HLSインスタンスを破棄
-                if (hls) {
-                    hls.destroy();
-                    hls = null;
-                }
             }
             
             // YouTube埋め込みを自動再生
@@ -256,60 +193,6 @@
         }
     }
     
-    /**
-     * 🔴 高画質化ボタンが押されたときにURLを取得し、再生を開始する関数
-     */
-    async function fetchAndShowHighQuality(videoId) {
-        // 通常再生を停止
-        videoElement.pause(); 
-
-        // ボタンを一時的に無効化し、「取得中」を表示
-        highQualityBtn.disabled = true;
-        highQualityBtn.style.opacity = 0.5;
-        highQualityBtn.textContent = '高画質化再生 (取得中...)';
-
-        let urlToPlay = cachedHighQualityUrl;
-
-        if (!urlToPlay) {
-            try {
-                // 新しいAPIエンドポイントを呼び出し
-                const response = await fetch(`/api/stream/${videoId}`);
-                if (!response.ok) throw new Error('ストリームAPIの呼び出しに失敗');
-                
-                const data = await response.json();
-                // 応答から1080pのURLを取得
-                urlToPlay = data.high_quality_url;
-                
-                if (urlToPlay) {
-                    cachedHighQualityUrl = urlToPlay;
-                } else {
-                    // URLが取得できなかった場合は失敗
-                    alert('最高画質ストリームURLを取得できませんでした。通常再生に戻ります。');
-                    highQualityBtn.textContent = '高画質化再生 (1080p)';
-                    highQualityBtn.disabled = false;
-                    highQualityBtn.style.opacity = 1.0;
-                    showPlayer('yuzutube-player', 'normal');
-                    return; 
-                }
-            } catch (error) {
-                console.error('高画質URLの取得エラー:', error);
-                alert('高画質ストリームの取得中にエラーが発生しました。通常再生に戻ります。');
-                highQualityBtn.textContent = '高画質化再生 (1080p)';
-                highQualityBtn.disabled = false;
-                highQualityBtn.style.opacity = 1.0;
-                showPlayer('yuzutube-player', 'normal');
-                return;
-            }
-        }
-        
-        // URLが取得できたので再生を開始
-        showPlayer('yuzutube-player', 'high_quality', urlToPlay);
-        
-        // ボタンを有効化し、テキストを元に戻す
-        highQualityBtn.disabled = false;
-        highQualityBtn.style.opacity = 1.0;
-        highQualityBtn.textContent = '高画質化再生 (1080p)';
-    }
 
     // ページロード時の初期設定
     document.addEventListener('DOMContentLoaded', () => {
