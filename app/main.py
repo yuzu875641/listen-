@@ -130,24 +130,14 @@ async def getVideoData(videoid):
     t = json.loads(t_text)
     recommended_videos = t.get('recommendedvideo') or t.get('recommendedVideos') or []
     
-    stream_data = await run_in_threadpool(getStreamData, videoid)
-    
     # InvidiousのフォールバックURL
     fallback_videourls = list(reversed([i["url"] for i in t["formatStreams"]]))[:2]
     
-    quality_streams = {}
+    # quality_streamsの取得ロジックは/api/streamで実行するため、ここでは省略
     
-    if stream_data and 'm3u8' in stream_data:
-        # m3u8ストリームの収集
-        for quality, data in stream_data.get('m3u8', {}).items():
-            # type2.jsonの構造: data['url']['url']
-            if isinstance(data, dict) and 'url' in data and isinstance(data['url'], dict) and 'url' in data['url']:
-                 quality_streams[quality] = data['url']['url']
-                 
     # データを整理して返す
     return [{
         'video_urls': fallback_videourls, 
-        'quality_streams': quality_streams, # 画質選択に使用するM3U8 URLの辞書
         'description_html': t["descriptionHtml"].replace("\n", "<br>"), 'title': t["title"],
         'length_text': str(datetime.timedelta(seconds=t["lengthSeconds"])), 'author_id': t["authorId"], 'author': t["author"], 'author_thumbnails_url': t["authorThumbnails"][-1]["url"], 'view_count': t["viewCount"], 'like_count': t["likeCount"], 'subscribers_count': t["subCountText"]
     }, [
@@ -200,6 +190,27 @@ app.mount(
     name="static"
 )
 
+# 🔴 新しいストリーム取得APIエンドポイント 🔴
+@app.get("/api/stream/{videoid}")
+async def stream_api(videoid: str):
+    """
+    指定された動画IDのストリームデータをカスタムAPIから取得し、JSONで返す。
+    """
+    stream_data = await run_in_threadpool(getStreamData, videoid)
+    
+    quality_streams = {}
+    if stream_data and 'm3u8' in stream_data:
+        # m3u8ストリームの収集
+        for quality, data in stream_data.get('m3u8', {}).items():
+            # type2.jsonの構造: data['url']['url']
+            if isinstance(data, dict) and 'url' in data and isinstance(data['url'], dict) and 'url' in data['url']:
+                 quality_streams[quality] = data['url']['url']
+                 
+    # 1080pのURLのみを返す
+    high_quality_url = quality_streams.get('1080p', '')
+    
+    return {"high_quality_url": high_quality_url}
+
 
 @app.get('/', response_class=HTMLResponse)
 async def home(request: Request, proxy: Union[str] = Cookie(None)):
@@ -212,12 +223,12 @@ async def home(request: Request, proxy: Union[str] = Cookie(None)):
 async def video(v:str, request: Request, proxy: Union[str] = Cookie(None)):
     video_data = await getVideoData(v)
     
-    quality_streams = video_data[0]['quality_streams']
+    # ページロード時には高画質URLは渡さない
+    high_quality_url = ""
     
     return templates.TemplateResponse('video.html', {
         "request": request, "videoid": v, "videourls": video_data[0]['video_urls'], 
-        "quality_streams": quality_streams, # テンプレートに渡す
-        "quality_streams_json": json.dumps(quality_streams), # JSに渡すためにJSON文字列として渡す
+        "high_quality_url": high_quality_url, # 常に空文字列で渡す（使用されないがテンプレートの変数として残す）
         "description": video_data[0]['description_html'], "video_title": video_data[0]['title'], "author_id": video_data[0]['author_id'], "author_icon": video_data[0]['author_thumbnails_url'], "author": video_data[0]['author'], "length_text": video_data[0]['length_text'], "view_count": video_data[0]['view_count'], "like_count": video_data[0]['like_count'], "subscribers_count": video_data[0]['subscribers_count'], "recommended_videos": video_data[1], "proxy":proxy
     })
 
