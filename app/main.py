@@ -188,33 +188,6 @@ app.mount(
     name="static"
 )
 
-# 🔴 修正済みストリーム取得APIエンドポイント: /itag/96/を含むURLを抽出して返す 🔴
-@app.get("/api/stream/{videoid}")
-async def stream_api(videoid: str):
-    """
-    指定された動画IDのストリームデータをカスタムAPIから取得し、/itag/96/を含むURLをJSONで返す。
-    """
-    stream_data = await run_in_threadpool(getStreamData, videoid)
-    
-    high_quality_url = ""
-    
-    if stream_data and 'm3u8' in stream_data:
-        m3u8_streams = stream_data.get('m3u8', {})
-        
-        # ユーザー要求: /itag/96/ を含むURLを優先的に探す
-        for data in m3u8_streams.values():
-            # data['url']['url']の構造からURLを抽出
-            if isinstance(data, dict) and 'url' in data and isinstance(data['url'], dict) and 'url' in data['url']:
-                 url = data['url']['url']
-                 
-                 # 🔴 /itag/96/の存在をチェック 🔴
-                 if "/itag/96/" in url:
-                     high_quality_url = url
-                     break # 最高画質が見つかったのでループを終了
-                 
-    # /itag/96/を含むURL、または空文字列を返す
-    return {"high_quality_url": high_quality_url}
-
 
 @app.get('/', response_class=HTMLResponse)
 async def home(request: Request, proxy: Union[str] = Cookie(None)):
