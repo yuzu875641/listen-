@@ -140,6 +140,7 @@
      * HLS.jsを使用して動画をロードする
      */
     function loadHlsVideo(videoElement, url) {
+        // 既存のhlsインスタンスがあれば破棄
         if (hls) {
             hls.destroy();
         }
@@ -175,10 +176,12 @@
         
         loadHlsVideo(videoElement, url);
         
-        // 再生位置を維持する
-        hls.on(Hls.Events.MANIFEST_PARSED, function() {
-            videoElement.currentTime = currentTime;
-        });
+        // HLS.jsの場合、新しいストリームの解析後、再生位置を維持
+        if (hls) {
+            hls.on(Hls.Events.MANIFEST_PARSED, function() {
+                videoElement.currentTime = currentTime;
+            });
+        }
     }
 
     /**
@@ -196,6 +199,7 @@
         if (playerId === 'yuzutube-player') {
             yuzuPlayer.style.display = 'block';
             youtubePlayer.style.display = 'none';
+            // 通常再生に切り替える際、画質セレクターを表示
             if (qualitySelector) qualitySelector.style.display = 'block';
             
             yuzuBtn.style.backgroundColor = 'var(--yt-light-dark)';
@@ -218,6 +222,7 @@
         } else {
             yuzuPlayer.style.display = 'none';
             youtubePlayer.style.display = 'block';
+            // YT再生に切り替える際、画質セレクターを非表示
             if (qualitySelector) qualitySelector.style.display = 'none';
             
             yuzuBtn.style.backgroundColor = 'var(--yt-bg)';
@@ -249,8 +254,11 @@
         
         // HLS.jsの初期ロード
         {% if quality_streams %}
-            const initialUrl = document.getElementById('quality-selector').value;
-            loadHlsVideo(videoElement, initialUrl);
+            const qualitySelector = document.getElementById('quality-selector');
+            if (qualitySelector) {
+                const initialUrl = qualitySelector.value;
+                loadHlsVideo(videoElement, initialUrl);
+            }
         {% else %}
             // HLSストリームがない場合は、ブラウザに任せる
             videoElement.load();
