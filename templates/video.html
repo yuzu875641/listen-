@@ -10,6 +10,12 @@
                 style="padding: 8px 15px; cursor: pointer; border: 1px solid var(--yt-sub-text); color: var(--yt-text); background-color: var(--yt-bg);">
                 通常再生
             </button>
+            
+            {# 新しく追加した高画質再生ボタン #}
+            <button id="high-quality-btn" onclick="showPlayer('yuzutube-player', 'high_quality');" 
+                style="padding: 8px 15px; cursor: pointer; border: 1px solid var(--yt-sub-text); color: var(--yt-text); background-color: var(--yt-bg);">
+                高画質再生
+            </button>
         
             <button id="youtube-btn" onclick="showPlayer('youtube-embed-player');" 
                 style="padding: 8px 15px; cursor: pointer; border: 1px solid var(--yt-sub-text); color: var(--yt-text); background-color: var(--yt-bg);">
@@ -92,10 +98,56 @@
 </div>
 
 <script>
-    let hls = null;
     let cachedHighQualityUrl = null; 
-    const highQualityBtn = document.getElementById('high-quality-btn');
+    
+    // グローバルスコープでDOM要素を参照
     const videoElement = document.getElementById('player');
+    const videoId = '{{ videoid }}';
+    const highQualityBtn = document.getElementById('high-quality-btn');
+    const yuzuBtn = document.getElementById('yuzu-btn');
+    const youtubeBtn = document.getElementById('youtube-btn');
+    const yuzuPlayer = document.getElementById('yuzutube-player');
+    const youtubePlayer = document.getElementById('youtube-embed-player');
+    const youtubeIframe = document.getElementById('youtube-iframe');
+    const firstSource = videoElement ? videoElement.querySelector('source') : null;
+
+    /**
+     * 高画質ストリームURLを取得する（キャッシュ利用）
+     */
+    async function getHighQualityUrl(videoId) {
+        if (cachedHighQualityUrl) {
+            return cachedHighQualityUrl;
+        }
+
+        if (highQualityBtn) {
+            highQualityBtn.textContent = '高画質読み込み中...';
+            highQualityBtn.disabled = true;
+        }
+        
+        try {
+            const response = await fetch(`/api/stream/${videoId}`);
+            if (!response.ok) {
+                throw new Error('高画質ストリームの取得に失敗しました。');
+            }
+            const data = await response.json();
+            cachedHighQualityUrl = data.stream_url;
+            
+            if (highQualityBtn) {
+                highQualityBtn.textContent = '高画質再生';
+                highQualityBtn.disabled = false;
+            }
+            return cachedHighQualityUrl;
+        } catch (error) {
+            console.error('高画質URLの取得エラー:', error);
+            if (highQualityBtn) {
+                highQualityBtn.textContent = '高画質失敗';
+                highQualityBtn.disabled = true;
+                highQualityBtn.style.backgroundColor = 'red';
+            }
+            alert('高画質ストリームの取得に失敗しました。通常再生で試してください。');
+            return null;
+        }
+    }
 
     // コメントロード関数 (変更なし)
     function loadComments(videoId) {
@@ -116,50 +168,59 @@
                 commentList.innerHTML = '<div style="color: red; padding: 10px;">コメントの読み込み中にエラーが発生しました。</div>';
             });
     }
+
     /**
      * 動画プレーヤーを切り替え、ボタンのスタイルを更新し、非表示にする側の動画を停止する関数
      */
-    function showPlayer(playerId, mode = 'normal', highQualityUrl = null) {
-        const yuzuPlayer = document.getElementById('yuzutube-player');
-        const youtubePlayer = document.getElementById('youtube-embed-player');
-        const yuzuBtn = document.getElementById('yuzu-btn');
-        const youtubeBtn = document.getElementById('youtube-btn');
-        const youtubeIframe = document.getElementById('youtube-iframe');
+    async function showPlayer(playerId, mode = 'normal') {
         
         // すべてのボタンを非アクティブな色にリセット
-        yuzuBtn.style.backgroundColor = 'var(--yt-bg)';
+        if (yuzuBtn) yuzuBtn.style.backgroundColor = 'var(--yt-bg)';
         if (highQualityBtn) highQualityBtn.style.backgroundColor = 'var(--yt-bg)';
-        youtubeBtn.style.backgroundColor = 'var(--yt-bg)';
+        if (youtubeBtn) youtubeBtn.style.backgroundColor = 'var(--yt-bg)';
 
         if (playerId === 'yuzutube-player') {
             yuzuPlayer.style.display = 'block';
             youtubePlayer.style.display = 'none';
 
-            // YT動画を停止
-            if (youtubeIframe && youtubeIframe.src) {
-                const currentSrc = youtubeIframe.src;
-                youtubeIframe.src = '';
+            // YT動画の自動再生を停止
+            if (youtubeIframe && youtubeIframe.src && youtubeIframe.src.includes('autoplay=1')) {
+                let currentSrc = youtubeIframe.src;
                 youtubeIframe.src = currentSrc.replace(/&autoplay=1/, '').replace(/\?autoplay=1&/, '?').replace('?autoplay=1', '');
             }
             
             // --- 再生モードの分岐処理 ---
-            if (mode === 'high_quality' && highQualityUrl) {
+            if (mode === 'high_quality') {
                 
-                // ボタンのスタイル更新
-                if (highQualityBtn) highQualityBtn.style.backgroundColor = 'var(--yt-light-dark)';
+                // 高画質URLを取得（キャッシュ優先、必要ならfetch）
+                const highQualityUrl = await getHighQualityUrl(videoId);
+
+                if (highQualityUrl) {
+                    // ソースを入れ替えて再ロード
+                    if (videoElement) {
+                        videoElement.src = highQualityUrl;
+                        videoElement.load();
+                    }
+                    
+                    // ボタンのスタイル更新
+                    if (highQualityBtn) highQualityBtn.style.backgroundColor = 'var(--yt-light-dark)';
+                    
+                } else {
+                    // 取得失敗時は、高画質ボタンのエラー表示を維持し、処理を中断
+                    return;
+                }
 
             } else {
                 // 2. 通常再生 (フォールバックURLを使用)
                 
-                // 既存のソースURLをリセットしてブラウザに再ロードさせる
-                const firstSource = videoElement.querySelector('source');
-                if (firstSource) {
+                // Invidious APIから返されたフォールバックURLを再設定
+                if (videoElement && firstSource) {
                     videoElement.src = firstSource.src;
+                    videoElement.load();
                 }
-                videoElement.load();
-                
+
                 // ボタンのスタイル更新
-                yuzuBtn.style.backgroundColor = 'var(--yt-light-dark)';
+                if (yuzuBtn) yuzuBtn.style.backgroundColor = 'var(--yt-light-dark)';
             }
             
             // 動画を再開
@@ -174,7 +235,7 @@
             yuzuPlayer.style.display = 'none';
             youtubePlayer.style.display = 'block';
             
-            youtubeBtn.style.backgroundColor = 'var(--yt-light-dark)';
+            if (youtubeBtn) youtubeBtn.style.backgroundColor = 'var(--yt-light-dark)';
             
             // 通常再生の動画を停止
             if (videoElement) {
@@ -196,9 +257,8 @@
 
     // ページロード時の初期設定
     document.addEventListener('DOMContentLoaded', () => {
-        const videoId = '{{ videoid }}';
         loadComments(videoId);
-
+        
         // ページロード時は通常再生をアクティブにする
         showPlayer('yuzutube-player', 'normal'); 
     });
