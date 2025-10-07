@@ -103,6 +103,7 @@ def requestAPI(path, api_urls):
 
 def getStreamData(videoid):
     """カスタムAPIから動画ストリームデータを取得する"""
+    # 目的のURL: https://siawaseok.duckdns.org/api/stream/:videoid/type2
     api_url = f"https://siawaseok.duckdns.org/api/stream/{videoid}/type2"
     try:
         res = requests.get(api_url, headers=getRandomUserAgent(), timeout=max_api_wait_time)
@@ -188,6 +189,51 @@ app.mount(
     name="static"
 )
 
+
+# --- API Routes ---
+
+@app.get("/api/stream/{videoid}")
+async def get_stream_url(videoid: str):
+    """
+    カスタムAPIから動画ストリームデータを取得し、ストリームURLを返す。
+    優先順位: 
+    1. m3u8 -> 1080p の URL
+    2. videoStreams (以前の形式) の 5番目の URL
+    3. videourl -> 1080p の video URL
+    """
+    video_data = await run_in_threadpool(getStreamData, videoid)
+    
+    if not video_data:
+        return Response(content='{"error": "Failed to load stream data"}', media_type="application/json", status_code=404)
+
+    stream_url = ''
+    
+    # 1. 新しい形式: 'm3u8' の中で最も高い画質 (例: 1080p) の URL を取得
+    if 'm3u8' in video_data and '1080p' in video_data['m3u8']:
+        # 階層: m3u8 -> 1080p -> url -> url の値
+        stream_url = video_data['m3u8']['1080p']['url'].get('url', '')
+
+    # 2. 1. のストリームURLが見つからなかった場合、以前の形式 (videoStreams) を確認
+    elif 'videoStreams' in video_data and video_data['videoStreams']:
+        video_streams = video_data['videoStreams']
+        # 5番目の要素（インデックス 4）があるか確認
+        if len(video_streams) >= 5:
+            stream_url = video_streams[4].get('url', '')
+    
+    # 3. どちらも見つからなかった場合、新しい形式の videourl の 1080p の video url をフォールバックとして取得
+    elif 'videourl' in video_data and '1080p' in video_data['videourl']:
+        # 階層: videourl -> 1080p -> video -> url の値
+        stream_url = video_data['videourl']['1080p']['video'].get('url', '')
+    
+    
+    if stream_url:
+        return {"videoid": videoid, "stream_url": stream_url}
+    else:
+        # どのストリームURLも見つからなかった場合
+        return Response(content='{"error": "Stream URL not found (HLS 1080p or fallback)"}', media_type="application/json", status_code=404)
+
+
+# --- Frontend Routes ---
 
 @app.get('/', response_class=HTMLResponse)
 async def home(request: Request, proxy: Union[str] = Cookie(None)):
