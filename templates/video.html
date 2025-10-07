@@ -17,9 +17,6 @@
         </div>
 
         <div id="yuzutube-player" style="display: block; width: 100%; aspect-ratio: 16/9; background-color: black; position: relative; overflow: hidden; border-radius: 8px;">
-            {# 動画の読み込みメッセージのコンテナを削除しました #}
-            
-            {# videoタグに変更し、videourlsリストを使用 #}
             <video style="outline:none;width:100%; height: 100%;" playsinline="" 
                    poster="/thumbnail?v={{ videoid }}" 
                    id="player" 
@@ -40,6 +37,7 @@
                 frameborder="0"
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                 allowfullscreen
+                id="youtube-iframe"
                 style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;">
             </iframe>
         </div>
@@ -92,8 +90,6 @@
 </div>
 
 <script>
-    // loadTimer、loadMessage、および関連ロジックを削除しました
-
     function loadComments(videoId) {
         const commentList = document.getElementById('comment-list');
         commentList.innerHTML = '<div style="color: var(--yt-sub-text);">コメントを読み込み中...</div>';
@@ -114,14 +110,15 @@
     }
 
     /**
-     * 動画プレーヤーを切り替え、ボタンのスタイルを更新する関数
+     * 動画プレーヤーを切り替え、ボタンのスタイルを更新し、非表示にする側の動画を停止する関数
      */
     function showPlayer(playerId) {
         const yuzuPlayer = document.getElementById('yuzutube-player');
         const youtubePlayer = document.getElementById('youtube-embed-player');
         const yuzuBtn = document.getElementById('yuzu-btn');
         const youtubeBtn = document.getElementById('youtube-btn');
-        // loadMessageの取得と制御ロジックを削除しました
+        const videoElement = document.getElementById('player');
+        const youtubeIframe = document.getElementById('youtube-iframe');
 
         if (playerId === 'yuzutube-player') {
             yuzuPlayer.style.display = 'block';
@@ -129,8 +126,15 @@
             
             yuzuBtn.style.backgroundColor = 'var(--yt-light-dark)';
             youtubeBtn.style.backgroundColor = 'var(--yt-bg)';
-            
-            // ロードメッセージの表示ロジックを削除しました
+
+            // YT再生から通常再生に切り替える際、YTの動画を停止させる
+            // YouTube iframeのsrcをリセットすることで、動画が停止・リロードされる
+            if (youtubeIframe && youtubeIframe.src) {
+                const currentSrc = youtubeIframe.src;
+                // srcをリセットし、その後すぐに元に戻すことで停止効果を得る
+                youtubeIframe.src = '';
+                youtubeIframe.src = currentSrc.replace(/&autoplay=1/, '');
+            }
             
         } else {
             yuzuPlayer.style.display = 'none';
@@ -139,7 +143,10 @@
             yuzuBtn.style.backgroundColor = 'var(--yt-bg)';
             youtubeBtn.style.backgroundColor = 'var(--yt-light-dark)';
             
-            // ロードメッセージの非表示ロジックを削除しました
+            // 通常再生からYT再生に切り替える際、通常再生の動画を停止させる
+            if (videoElement) {
+                videoElement.pause();
+            }
         }
     }
     
@@ -147,8 +154,6 @@
     document.addEventListener('DOMContentLoaded', () => {
         const videoId = '{{ videoid }}';
         loadComments(videoId);
-        
-        // 初回ロード時のメッセージ表示・制御ロジックをすべて削除しました
     });
 </script>
 {% endblock %}
