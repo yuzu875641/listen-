@@ -12,17 +12,16 @@
     <div class="main-video-area">
         <div style="margin-bottom: 10px; display: flex; align-items: center; gap: 10px;">
             <button id="yuzu-btn" onclick="showPlayer('yuzutube-player', 'normal');" 
-                style="padding: 8px 15px; cursor: pointer; border: 1px solid var(--yt-sub-text); color: var(--yt-text); background-color: var(--yt-light-dark);">
+                style="padding: 8px 15px; cursor: pointer; border: 1px solid var(--yt-sub-text); color: var(--yt-text); background-color: var(--yt-bg);">
                 通常再生
             </button>
             
-            {# 🔴 高画質化再生ボタン 🔴 #}
-            {% if "1080p" in quality_streams %}
-            <button id="high-quality-btn" onclick="showPlayer('yuzutube-player', 'high_quality');" 
-                style="padding: 8px 15px; cursor: pointer; border: 1px solid var(--yt-sub-text); color: var(--yt-text); background-color: var(--yt-bg);">
-                高画質化再生 (1080p)
+            {# 🔴 ボタンを常に表示し、クリックイベントでURLを取得 🔴 #}
+            <button id="high-quality-btn" 
+                    onclick="fetchAndShowHighQuality('{{ videoid }}');" 
+                    style="padding: 8px 15px; cursor: pointer; border: 1px solid var(--yt-sub-text); color: var(--yt-text); background-color: var(--yt-bg); opacity: 1.0;">
+                高画質化再生
             </button>
-            {% endif %}
 
             <button id="youtube-btn" onclick="showPlayer('youtube-embed-player');" 
                 style="padding: 8px 15px; cursor: pointer; border: 1px solid var(--yt-sub-text); color: var(--yt-text); background-color: var(--yt-bg);">
@@ -106,10 +105,12 @@
 
 <script>
     let hls = null;
-    // バックエンドから渡されたJSON形式のquality_streamsをパースし、1080pのURLを取得
-    const qualityStreams = JSON.parse('{{ quality_streams_json | safe }}');
-    const highQualityUrl = qualityStreams['1080p'] || null;
+    // 取得したURLをキャッシュするための変数
+    let cachedHighQualityUrl = null; 
+    const highQualityBtn = document.getElementById('high-quality-btn');
+    const videoElement = document.getElementById('player');
 
+    // コメントロード関数 (変更なし)
     function loadComments(videoId) {
         const commentList = document.getElementById('comment-list');
         commentList.innerHTML = '<div style="color: var(--yt-sub-text);">コメントを読み込み中...</div>';
@@ -137,9 +138,10 @@
             hls.destroy();
         }
         
-        if (!url) {
-            // URLがない場合は何もしない（通常再生は既存のソースを使う）
-            videoElement.load();
+        if (!url || !Hls.isSupported()) {
+            console.error("HLS URLなし、またはHLSがサポートされていません。通常再生に戻します。");
+            // HLS再生失敗時、通常再生にフォールバック
+            showPlayer('yuzutube-player', 'normal'); 
             return;
         }
 
@@ -152,35 +154,38 @@
                     console.log("Autoplay prevented. Please click play.");
                 });
             });
+            // HLSエラーが発生した場合も通常再生に戻す
+            hls.on(Hls.Events.ERROR, function(event, data) {
+                 if (data.fatal) {
+                     console.error("HLS Fatal Error:", data);
+                     alert('高画質ストリームの再生中にエラーが発生しました。通常再生に戻ります。');
+                     showPlayer('yuzutube-player', 'normal');
+                 }
+            });
         } else if (videoElement.canPlayType('application/vnd.apple.mpegurl')) {
             // ネイティブHLSサポート (Safariなど)
             videoElement.src = url;
             videoElement.play();
-        } else {
-            console.error("HLS is not supported by this browser.");
-            videoElement.src = url;
-            videoElement.load();
         }
     }
 
     /**
      * 動画プレーヤーを切り替え、ボタンのスタイルを更新し、非表示にする側の動画を停止する関数
-     * @param {string} playerId - 'yuzutube-player' または 'youtube-embed-player'
-     * @param {string} mode - 'normal' (通常再生) または 'high_quality' (1080p強制)
      */
-    function showPlayer(playerId, mode = 'normal') {
+    function showPlayer(playerId, mode = 'normal', highQualityUrl = null) {
         const yuzuPlayer = document.getElementById('yuzutube-player');
         const youtubePlayer = document.getElementById('youtube-embed-player');
         const yuzuBtn = document.getElementById('yuzu-btn');
         const youtubeBtn = document.getElementById('youtube-btn');
-        const highQualityBtn = document.getElementById('high-quality-btn');
-        const videoElement = document.getElementById('player');
-        const youtubeIframe = document.getElementById('youtube-iframe');
         
+        // すべてのボタンを非アクティブな色にリセット
+        yuzuBtn.style.backgroundColor = 'var(--yt-bg)';
+        if (highQualityBtn) highQualityBtn.style.backgroundColor = 'var(--yt-bg)';
+        youtubeBtn.style.backgroundColor = 'var(--yt-bg)';
+
         if (playerId === 'yuzutube-player') {
             yuzuPlayer.style.display = 'block';
             youtubePlayer.style.display = 'none';
-            youtubeBtn.style.backgroundColor = 'var(--yt-bg)';
 
             // YT動画を停止
             if (youtubeIframe && youtubeIframe.src) {
@@ -191,26 +196,29 @@
             
             // --- 再生モードの分岐処理 ---
             if (mode === 'high_quality' && highQualityUrl) {
-                // 1. 高画質化再生 (1080pを強制ロード)
+                // 1. 高画質化再生
                 loadHlsVideo(videoElement, highQualityUrl);
                 
                 // ボタンのスタイル更新
-                yuzuBtn.style.backgroundColor = 'var(--yt-bg)';
                 if (highQualityBtn) highQualityBtn.style.backgroundColor = 'var(--yt-light-dark)';
 
             } else {
                 // 2. 通常再生 (フォールバックURLを使用)
-                yuzuBtn.style.backgroundColor = 'var(--yt-light-dark)';
-                if (highQualityBtn) highQualityBtn.style.backgroundColor = 'var(--yt-bg)';
-
-                // 既にロードされたソース(Invidiousのフォールバック)で動画をリロード/再生
+                
+                // HLSインスタンスの破棄
                 if (hls) {
                     hls.destroy();
                     hls = null;
                 }
                 // 既存のソースURLをリセットしてブラウザに再ロードさせる
-                videoElement.src = videoElement.querySelector('source').src;
+                const firstSource = videoElement.querySelector('source');
+                if (firstSource) {
+                    videoElement.src = firstSource.src;
+                }
                 videoElement.load();
+                
+                // ボタンのスタイル更新
+                yuzuBtn.style.backgroundColor = 'var(--yt-light-dark)';
             }
             
             // 通常再生の動画を再開
@@ -225,8 +233,6 @@
             yuzuPlayer.style.display = 'none';
             youtubePlayer.style.display = 'block';
             
-            yuzuBtn.style.backgroundColor = 'var(--yt-bg)';
-            if (highQualityBtn) highQualityBtn.style.backgroundColor = 'var(--yt-bg)';
             youtubeBtn.style.backgroundColor = 'var(--yt-light-dark)';
             
             // 通常再生の動画を停止
@@ -251,21 +257,65 @@
         }
     }
     
+    /**
+     * 🔴 高画質化ボタンが押されたときにURLを取得し、再生を開始する関数
+     */
+    async function fetchAndShowHighQuality(videoId) {
+        // 通常再生を停止
+        videoElement.pause(); 
+
+        // ボタンを一時的に無効化し、「取得中」を表示
+        highQualityBtn.disabled = true;
+        highQualityBtn.style.opacity = 0.5;
+        highQualityBtn.textContent = '高画質化再生 (取得中...)';
+
+        let urlToPlay = cachedHighQualityUrl;
+
+        if (!urlToPlay) {
+            try {
+                const response = await fetch(`/api/stream/${videoId}`);
+                if (!response.ok) throw new Error('ストリームAPIの呼び出しに失敗');
+                
+                const data = await response.json();
+                urlToPlay = data.high_quality_url;
+                
+                if (urlToPlay) {
+                    cachedHighQualityUrl = urlToPlay;
+                } else {
+                    alert('高画質ストリームURLを取得できませんでした。通常再生に戻ります。');
+                    highQualityBtn.textContent = '高画質化再生 (1080p)';
+                    highQualityBtn.disabled = false;
+                    highQualityBtn.style.opacity = 1.0;
+                    showPlayer('yuzutube-player', 'normal');
+                    return; 
+                }
+            } catch (error) {
+                console.error('高画質URLの取得エラー:', error);
+                alert('高画質ストリームの取得中にエラーが発生しました。通常再生に戻ります。');
+                highQualityBtn.textContent = '高画質化再生 (1080p)';
+                highQualityBtn.disabled = false;
+                highQualityBtn.style.opacity = 1.0;
+                showPlayer('yuzutube-player', 'normal');
+                return;
+            }
+        }
+        
+        // URLが取得できたので再生を開始
+        showPlayer('yuzutube-player', 'high_quality', urlToPlay);
+        
+        // ボタンを有効化し、テキストを元に戻す
+        highQualityBtn.disabled = false;
+        highQualityBtn.style.opacity = 1.0;
+        highQualityBtn.textContent = '高画質化再生 (1080p)';
+    }
+
     // ページロード時の初期設定
     document.addEventListener('DOMContentLoaded', () => {
         const videoId = '{{ videoid }}';
         loadComments(videoId);
 
-        const videoElement = document.getElementById('player');
-        
-        // 1080p URLがある場合は、高画質化再生モードで再生を開始し、ボタンをアクティブにする
-        if (highQualityUrl) {
-            showPlayer('yuzutube-player', 'high_quality');
-        } else {
-            // ない場合は通常再生（フォールバック）で再生を開始する
-            videoElement.load();
-            // この場合、通常再生ボタンがアクティブになる
-        }
+        // ページロード時は通常再生をアクティブにする
+        showPlayer('yuzutube-player', 'normal'); 
     });
 </script>
 {% endblock %}
