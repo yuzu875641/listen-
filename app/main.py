@@ -101,7 +101,6 @@ def requestAPI(path, api_urls):
             
     raise APITimeoutError("All available API instances failed to respond.")
 
-# --- 追加: カスタムストリームAPIの関数 ---
 def getStreamData(videoid):
     """カスタムAPIから動画ストリームデータを取得する"""
     api_url = f"https://siawaseok.duckdns.org/api/stream/{videoid}/type2"
@@ -131,38 +130,24 @@ async def getVideoData(videoid):
     t = json.loads(t_text)
     recommended_videos = t.get('recommendedvideo') or t.get('recommendedVideos') or []
     
-    # --- 修正: ストリームデータを取得し、videourlsとm3u8urlsをテンプレートに渡す ---
     stream_data = await run_in_threadpool(getStreamData, videoid)
     
-    # videourls（プログレッシブダウンロード用）の準備
-    # 以前のコードの互換性のために、フォールバックとしてInvidiousのURLを使用
-    # m3u8があればそちらを優先するため、ここでは空リストまたは最低限のフォールバックとしておく
+    # InvidiousのフォールバックURL
     fallback_videourls = list(reversed([i["url"] for i in t["formatStreams"]]))[:2]
     
-    # 画質データを整理
     quality_streams = {}
-    if stream_data and 'videourl' in stream_data:
-        # videourl (MP4/WebM) と m3u8 (HLS) の両方から画質URLを抽出する
-        for quality, data in stream_data.get('videourl', {}).items():
-            if 'video' in data and 'audio' in data:
-                # video + audio の組み合わせ (HLS.jsが不要な場合もあるが、ここではシンプルにHLS.jsに任せる)
-                # m3u8がある場合はm3u8を優先するため、ここではvideourlを直接使うデータとしては渡さない
-                pass
-        
+    
+    if stream_data and 'm3u8' in stream_data:
         # m3u8ストリームの収集
         for quality, data in stream_data.get('m3u8', {}).items():
-            if 'url' in data and 'url' in data['url']:
+            # type2.jsonの構造: data['url']['url']
+            if isinstance(data, dict) and 'url' in data and isinstance(data['url'], dict) and 'url' in data['url']:
                  quality_streams[quality] = data['url']['url']
                  
-    # HLSストリームがない場合のフォールバックとしてInvidiousのURLを使用
-    if not quality_streams:
-        # 以前のコードで使用していた videourls をそのまま渡す
-        pass
-
+    # データを整理して返す
     return [{
-        # 修正：videourlsはHLSストリームを優先するため、空または最低限のリストにする
         'video_urls': fallback_videourls, 
-        'quality_streams': quality_streams, 
+        'quality_streams': quality_streams, # 画質選択に使用するM3U8 URLの辞書
         'description_html': t["descriptionHtml"].replace("\n", "<br>"), 'title': t["title"],
         'length_text': str(datetime.timedelta(seconds=t["lengthSeconds"])), 'author_id': t["authorId"], 'author': t["author"], 'author_thumbnails_url': t["authorThumbnails"][-1]["url"], 'view_count': t["viewCount"], 'like_count': t["likeCount"], 'subscribers_count': t["subCountText"]
     }, [
