@@ -28,6 +28,9 @@ failed = "Load Failed"
 MAX_RETRIES = 3   # ストリームAPIリトライ回数
 RETRY_DELAY = 1.0 # ストリームAPIリトライ待機時間 (秒)
 
+# 新規追加: /api/edu で使用する外部ストリームAPIのURL
+EDU_STREAM_API_BASE_URL = "https://siawaseok.duckdns.org/api/stream/" 
+
 
 invidious_api_data = {
     'video': [
@@ -240,6 +243,31 @@ async def getCommentsData(videoid):
     t = json.loads(t_text)["comments"]
     return [{"author": i["author"], "authoricon": i["authorThumbnails"][-1]["url"], "authorid": i["authorId"], "body": i["contentHtml"].replace("\n", "<br>")} for i in t]
 
+# 新規追加: /api/edu から呼び出す外部APIヘルパー関数
+async def fetch_embed_url_from_external_api(videoid: str) -> str:
+    """
+    外部ストリームAPIを呼び出し、埋め込みURLを取得する（requestsは同期のためスレッドプールで実行）
+    """
+    
+    target_url = f"{EDU_STREAM_API_BASE_URL}{videoid}"
+    
+    def sync_fetch():
+        res = requests.get(
+            target_url, 
+            headers=getRandomUserAgent(), 
+            timeout=max_api_wait_time
+        )
+        res.raise_for_status()
+        data = res.json()
+        
+        embed_url = data.get("url")
+        if not embed_url:
+            raise ValueError("External API response is missing the 'url' field.")
+            
+        return embed_url
+
+    return await run_in_threadpool(sync_fetch)
+
 
 # FastAPI Application
 app = FastAPI()
@@ -307,6 +335,41 @@ async def get_edu_key_route():
         return {"key": key}
     else:
         return Response(content='{"error": "Failed to retrieve key from Kahoot API"}', media_type="application/json", status_code=500)
+
+# 新規追加: /api/edu/{videoid} ルート (全画面埋め込み)
+@app.get('/api/edu/{videoid}', response_class=HTMLResponse)
+async def embed_edu_video(request: Request, videoid: str, proxy: Union[str] = Cookie(None)):
+    """
+    /api/edu/<videoid> ルート。
+    外部APIからストリームURLを取得し、そのURLを埋め込んだ全画面表示用の HTML ページを返します。
+    """
+    embed_url = None
+    try:
+        # 外部APIから埋め込みURLを取得
+        embed_url = await fetch_embed_url_from_external_api(videoid)
+        
+    except requests.exceptions.HTTPError as e:
+        status_code = e.response.status_code
+        if status_code == 404:
+            return Response(f"Stream URL for videoid '{videoid}' not found.", status_code=404)
+        print(f"Error calling external API (HTTP {status_code}): {e}")
+        return Response("Failed to retrieve stream URL from external service (HTTP Error).", status_code=503)
+        
+    except (requests.exceptions.RequestException, ValueError, json.JSONDecodeError) as e:
+        print(f"Error calling external API: {e}")
+        return Response("Failed to retrieve stream URL from external service (Connection/Format Error).", status_code=503)
+
+    # 取得した埋め込み URL をテンプレートに渡し、HTML をレンダリングして返す
+    return templates.TemplateResponse(
+        'embed.html', 
+        {
+            "request": request, 
+            "embed_url": embed_url,
+            "videoid": videoid,
+            "proxy": proxy
+        }
+    )
+
 
 # --- Frontend Routes ---
 
