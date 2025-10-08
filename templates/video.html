@@ -55,11 +55,10 @@
             </iframe>
         </div>
 
-        {# EDU埋め込み専用 Player #}
+        {# EDU埋め込み専用 Player: srcを初期状態で空白にする #}
         <div id="edu-embed-player" style="display: none; width: 100%; aspect-ratio: 16/9; position: relative; overflow: hidden; border-radius: 8px;">
-            {# /api/edu/{videoid} は全画面埋め込みHTMLを返すため、iframeで読み込む #}
             <iframe width="100%" height="100%"
-                src="/api/edu/{{ videoid }}"
+                src=""
                 frameborder="0"
                 allow="fullscreen; picture-in-picture"
                 allowfullscreen
@@ -128,6 +127,7 @@
     const youtubePlayer = document.getElementById('youtube-embed-player');
     const eduPlayer = document.getElementById('edu-embed-player');
     const youtubeIframe = document.getElementById('youtube-iframe');
+    const eduIframe = document.getElementById('edu-iframe'); // 新規追加
     const firstSource = videoElement ? videoElement.querySelector('source') : null;
 
     /**
@@ -193,12 +193,12 @@
         if (yuzuBtn) yuzuBtn.style.backgroundColor = 'var(--yt-bg)';
         if (highQualityBtn) highQualityBtn.style.backgroundColor = 'var(--yt-bg)';
         if (youtubeBtn) youtubeBtn.style.backgroundColor = 'var(--yt-bg)';
-        if (eduBtn) eduBtn.style.backgroundColor = 'var(--yt-bg)'; // eduボタンをリセット
+        if (eduBtn) eduBtn.style.backgroundColor = 'var(--yt-bg)';
 
         // 全プレーヤーを非表示に設定
         yuzuPlayer.style.display = 'none';
         youtubePlayer.style.display = 'none';
-        eduPlayer.style.display = 'none'; // eduプレーヤーも非表示に設定
+        eduPlayer.style.display = 'none';
         
         // 通常/高画質プレーヤーの動画を停止
         if (videoElement) videoElement.pause();
@@ -213,6 +213,9 @@
         
         if (playerId === 'yuzutube-player') {
             yuzuPlayer.style.display = 'block';
+            
+            // EDU iframeのsrcをリセット
+            if (eduIframe) eduIframe.src = '';
 
             if (mode === 'high_quality') {
                 
@@ -248,6 +251,9 @@
             
             youtubePlayer.style.display = 'block';
             
+            // EDU iframeのsrcをリセット
+            if (eduIframe) eduIframe.src = '';
+            
             if (youtubeBtn) youtubeBtn.style.backgroundColor = 'var(--yt-light-dark)';
             
             // YouTube埋め込みを自動再生
@@ -266,8 +272,13 @@
             
             if (eduBtn) eduBtn.style.backgroundColor = 'var(--yt-light-dark)';
             
-            // edu iframeはsrcが/api/edu/{videoid}に設定されているため、表示するだけでストリームがロードされる
-            // ここで特に追加のロード処理は不要
+            // EDU iframeのsrcを設定してロード
+            if (eduIframe) {
+                // srcがすでに設定されていなければ設定する（リロード防止）
+                if (eduIframe.src === '' || !eduIframe.src.includes(`/api/edu/${videoId}`)) {
+                    eduIframe.src = `/api/edu/${videoId}`;
+                }
+            }
         }
     }
     
@@ -276,6 +287,7 @@
     document.addEventListener('DOMContentLoaded', () => {
         loadComments(videoId);
         
+        // ページロード時は通常再生をアクティブにする
         showPlayer('yuzutube-player', 'normal'); 
     });
 </script>
