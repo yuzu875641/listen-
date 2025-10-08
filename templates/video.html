@@ -21,7 +21,6 @@
                 YT再生
             </button>
             
-            {# 修正: openEduPlayer() を showPlayer('edu-embed-player') に変更 #}
             <button id="edu-btn" onclick="showPlayer('edu-embed-player');" 
                 style="padding: 8px 15px; cursor: pointer; border: 1px solid var(--yt-sub-text); color: var(--yt-text); background-color: var(--yt-bg);">
                 eduで視聴
@@ -56,7 +55,7 @@
             </iframe>
         </div>
 
-        {# 新規追加: EDU埋め込み専用 Player #}
+        {# EDU埋め込み専用 Player #}
         <div id="edu-embed-player" style="display: none; width: 100%; aspect-ratio: 16/9; position: relative; overflow: hidden; border-radius: 8px;">
             {# /api/edu/{videoid} は全画面埋め込みHTMLを返すため、iframeで読み込む #}
             <iframe width="100%" height="100%"
@@ -124,10 +123,10 @@
     const highQualityBtn = document.getElementById('high-quality-btn');
     const yuzuBtn = document.getElementById('yuzu-btn');
     const youtubeBtn = document.getElementById('youtube-btn');
-    const eduBtn = document.getElementById('edu-btn'); // 新規追加
+    const eduBtn = document.getElementById('edu-btn');
     const yuzuPlayer = document.getElementById('yuzutube-player');
     const youtubePlayer = document.getElementById('youtube-embed-player');
-    const eduPlayer = document.getElementById('edu-embed-player'); // 新規追加
+    const eduPlayer = document.getElementById('edu-embed-player');
     const youtubeIframe = document.getElementById('youtube-iframe');
     const firstSource = videoElement ? videoElement.querySelector('source') : null;
 
@@ -167,7 +166,7 @@
         }
     }
 
-    // コメントロード関数 (変更なし)
+    // コメントロード関数
     function loadComments(videoId) {
         const commentList = document.getElementById('comment-list');
         commentList.innerHTML = '<div style="color: var(--yt-sub-text);">コメントを読み込み中...</div>';
@@ -194,7 +193,7 @@
         if (yuzuBtn) yuzuBtn.style.backgroundColor = 'var(--yt-bg)';
         if (highQualityBtn) highQualityBtn.style.backgroundColor = 'var(--yt-bg)';
         if (youtubeBtn) youtubeBtn.style.backgroundColor = 'var(--yt-bg)';
-        if (eduBtn) eduBtn.style.backgroundColor = 'var(--yt-bg)'; // eduボタンもリセット
+        if (eduBtn) eduBtn.style.backgroundColor = 'var(--yt-bg)'; // eduボタンをリセット
 
         // 全プレーヤーを非表示に設定
         yuzuPlayer.style.display = 'none';
@@ -267,10 +266,8 @@
             
             if (eduBtn) eduBtn.style.backgroundColor = 'var(--yt-light-dark)';
             
-            // EDUプレーヤーはiframeなので、srcを設定するだけでOK (既にHTMLで設定済み)
-            // 再度設定する場合は以下のようにする
-            // const eduIframe = document.getElementById('edu-iframe');
-            // if (eduIframe) eduIframe.src = `/api/edu/${videoId}`;
+            // edu iframeはsrcが/api/edu/{videoid}に設定されているため、表示するだけでストリームがロードされる
+            // ここで特に追加のロード処理は不要
         }
     }
     
@@ -279,7 +276,6 @@
     document.addEventListener('DOMContentLoaded', () => {
         loadComments(videoId);
         
-        // ページロード時は通常再生をアクティブにする
         showPlayer('yuzutube-player', 'normal'); 
     });
 </script>
