@@ -5,7 +5,7 @@ import datetime
 import urllib.parse
 from pathlib import Path 
 from typing import Union
-import asyncio # リトライ処理のために追加
+import asyncio 
 from fastapi import FastAPI, Response, Request, Cookie
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -115,11 +115,30 @@ def getStreamData(videoid):
         if isJSON(res.text):
             return json.loads(res.text)
     except requests.exceptions.RequestException as e:
-        # print(f"Stream API request failed: {e}")
         pass
     except json.JSONDecodeError:
-        # print("Stream API returned non-JSON data.")
         pass
+    
+    return None
+
+def getEduKey():
+    """
+    KahootのメディアAPIからYouTubeのキーを取得する
+    URL: https://apis.kahoot.it/media-api/youtube/key
+    """
+    api_url = "https://apis.kahoot.it/media-api/youtube/key"
+    try:
+        res = requests.get(api_url, headers=getRandomUserAgent(), timeout=max_api_wait_time)
+        res.raise_for_status() # HTTPエラーを確認
+        
+        if isJSON(res.text):
+            data = json.loads(res.text)
+            return data.get("key")
+        
+    except requests.exceptions.RequestException as e:
+        print(f"Kahoot API request failed: {e}")
+    except json.JSONDecodeError:
+        print("Kahoot API returned non-JSON data.")
     
     return None
 
@@ -243,38 +262,30 @@ async def get_stream_url(videoid: str):
     """
     video_data = None
     
-    # 外部APIからの取得を最大MAX_RETRIES回までループ
     for attempt in range(MAX_RETRIES):
-        # getStreamDataはrequestsを使用しているため、スレッドプールで実行
         data = await run_in_threadpool(getStreamData, videoid)
         
         if data:
             video_data = data
-            break # 成功したらループを抜ける
+            break
         
-        # 失敗した場合、最後の試行でなければ待機
         if attempt < MAX_RETRIES - 1:
             await asyncio.sleep(RETRY_DELAY) 
 
     if not video_data:
-        # 複数回の試行後もデータ取得に失敗
         return Response(content='{"error": "Failed to load stream data after multiple attempts"}', media_type="application/json", status_code=404)
 
     stream_url = ''
     
-    # --- ストリームURL抽出ロジック (m3u8 1080pを最優先) ---
-    
-    # 1. 新しい形式: 'm3u8' の中で最も高い画質 (1080p) の URL を取得
+    # ストリームURL抽出ロジック (m3u8 1080pを最優先)
     if 'm3u8' in video_data and '1080p' in video_data['m3u8']:
         stream_url = video_data['m3u8']['1080p']['url'].get('url', '')
 
-    # 2. 以前の形式 (videoStreams) を確認 (5番目のURL)
     elif 'videoStreams' in video_data and video_data['videoStreams']:
         video_streams = video_data['videoStreams']
         if len(video_streams) >= 5:
             stream_url = video_streams[4].get('url', '')
     
-    # 3. 新しい形式の videourl の 1080p の video url をフォールバックとして取得
     elif 'videourl' in video_data and '1080p' in video_data['videourl']:
         stream_url = video_data['videourl']['1080p']['video'].get('url', '')
     
@@ -282,9 +293,20 @@ async def get_stream_url(videoid: str):
     if stream_url:
         return {"videoid": videoid, "stream_url": stream_url}
     else:
-        # どのストリームURLも見つからなかった場合
         return Response(content='{"error": "Stream URL not found (HLS 1080p or fallback)"}', media_type="application/json", status_code=404)
 
+
+@app.get("/api/edu")
+async def get_edu_key_route():
+    """
+    KahootのYouTubeキーを取得し、JSONで返す
+    """
+    key = await run_in_threadpool(getEduKey)
+    
+    if key:
+        return {"key": key}
+    else:
+        return Response(content='{"error": "Failed to retrieve key from Kahoot API"}', media_type="application/json", status_code=500)
 
 # --- Frontend Routes ---
 
@@ -299,7 +321,6 @@ async def home(request: Request, proxy: Union[str] = Cookie(None)):
 async def video(v:str, request: Request, proxy: Union[str] = Cookie(None)):
     video_data = await getVideoData(v)
     
-    # ページロード時には高画質URLは渡さない（フロントエンドのボタンクリックで取得する）
     high_quality_url = ""
     
     return templates.TemplateResponse('video.html', {
@@ -326,7 +347,7 @@ async def channel(channelid:str, request: Request, proxy: Union[str] = Cookie(No
 async def playlist(list:str, request: Request, page:Union[int, None]=1, proxy: Union[str] = Cookie(None)):
     playlist_data = await getPlaylistData(list, str(page))
     return templates.TemplateResponse("search.html", {"request": request, "results": playlist_data, "word": "", "next": f"/playlist?list={list}&page={page + 1}", "proxy": proxy})
-    
+
 @app.get("/comments", response_class=HTMLResponse)
 async def comments(request: Request, v:str):
     comments_data = await getCommentsData(v)
