@@ -106,9 +106,11 @@ def requestAPI(path, api_urls):
     # APIFailoverがすべて失敗した場合、例外を投げる
     raise APITimeoutError("All available API instances failed to respond.")
 
-def getStreamData(videoid):
-    """カスタムAPIから動画ストリームデータを取得する"""
-    api_url = f"https://siawaseok.duckdns.org/api/stream/{videoid}/type2"
+def getStreamData(videoid, use_type2_api=True):
+    """カスタムAPIから動画ストリームデータを取得する。use_type2_apiでURLを切り替え可能。"""
+    # use_type2_api が True の場合は /type2 を追加
+    suffix = "/type2" if use_type2_api else "" 
+    api_url = f"https://siawaseok.duckdns.org/api/stream/{videoid}{suffix}"
     try:
         res = requests.get(api_url, headers=getRandomUserAgent(), timeout=max_api_wait_time)
         res.raise_for_status() # HTTPエラーを確認 (4xx, 5xx)
@@ -257,13 +259,55 @@ app.mount(
 @app.get("/api/stream/{videoid}")
 async def get_stream_url(videoid: str):
     """
-    カスタムAPIから動画ストリームデータを取得し、ストリームURLを返す。
-    外部APIからの取得が失敗した場合、最大3回までリトライする。
+    カスタムAPIから動画ストリームデータを取得し、ストリームURLを返す。（/type2あり）
     """
     video_data = None
     
     for attempt in range(MAX_RETRIES):
-        data = await run_in_threadpool(getStreamData, videoid)
+        # /type2あり (デフォルト)
+        data = await run_in_threadpool(getStreamData, videoid, True) 
+        
+        if data:
+            video_data = data
+            break
+        
+        if attempt < MAX_RETRIES - 1:
+            await asyncio.sleep(RETRY_DELAY) 
+
+    if not video_data:
+        return Response(content='{"error": "Failed to load stream data after multiple attempts"}', media_type="application/json", status_code=404)
+
+    stream_url = ''
+    
+    # ストリームURL抽出ロジック (m3u8 1080pを最優先)
+    if 'm3u8' in video_data and '1080p' in video_data['m3u8']:
+        stream_url = video_data['m3u8']['1080p']['url'].get('url', '')
+
+    elif 'videoStreams' in video_data and video_data['videoStreams']:
+        video_streams = video_data['videoStreams']
+        if len(video_streams) >= 5:
+            stream_url = video_streams[4].get('url', '')
+    
+    elif 'videourl' in video_data and '1080p' in video_data['videourl']:
+        stream_url = video_data['videourl']['1080p']['video'].get('url', '')
+    
+    
+    if stream_url:
+        return {"videoid": videoid, "stream_url": stream_url}
+    else:
+        return Response(content='{"error": "Stream URL not found (HLS 1080p or fallback)"}', media_type="application/json", status_code=404)
+
+
+@app.get("/api/edu/{videoid}")
+async def get_edu_stream_url_route(videoid: str):
+    """
+    https://siawaseok.duckdns.org/api/stream/:videoid からストリームURLを取得する。（/type2なし）
+    """
+    video_data = None
+    
+    for attempt in range(MAX_RETRIES):
+        # /type2なし (Falseを渡す)
+        data = await run_in_threadpool(getStreamData, videoid, False) 
         
         if data:
             video_data = data
