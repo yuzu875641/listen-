@@ -323,10 +323,10 @@ async def channel(channelid:str, request: Request, proxy: Union[str] = Cookie(No
     return templates.TemplateResponse("channel.html", {"request": request, "results": t[0], "channel_name": t[1]["channel_name"], "channel_icon": t[1]["channel_icon"], "channel_profile": t[1]["channel_profile"], "cover_img_url": t[1]["author_banner"], "subscribers_count": t[1]["subscribers_count"], "tags": t[1]["tags"], "proxy": proxy})
 
 @app.get("/playlist", response_class=HTMLResponse)
-async def playlist(list_id:str, request: Request, page:Union[int, None]=1, proxy: Union[str] = Cookie(None)):
-    playlist_data = await getPlaylistData(list_id, str(page))
-    return templates.TemplateResponse("search.html", {"request": request, "results": playlist_data, "word": "", "next": f"/playlist?list={list_id}&page={page + 1}", "proxy": proxy})
-
+async def playlist(list:str, request: Request, page:Union[int, None]=1, proxy: Union[str] = Cookie(None)):
+    playlist_data = await getPlaylistData(list, str(page))
+    return templates.TemplateResponse("search.html", {"request": request, "results": playlist_data, "word": "", "next": f"/playlist?list={list}&page={page + 1}", "proxy": proxy})
+    
 @app.get("/comments", response_class=HTMLResponse)
 async def comments(request: Request, v:str):
     comments_data = await getCommentsData(v)
