@@ -284,28 +284,19 @@ app.mount(
 
 @app.get("/api/stream/{videoid}")
 async def get_stream_url(videoid: str):
-    """
-    カスタムAPIから動画ストリームデータを取得し、ストリームURLを返す。
-    外部APIからの取得が失敗した場合、最大3回までリトライする。
-    """
     video_data = None
     
-    for attempt in range(MAX_RETRIES):
+    while True:
         data = await run_in_threadpool(getStreamData, videoid)
         
         if data:
             video_data = data
             break
         
-        if attempt < MAX_RETRIES - 1:
-            await asyncio.sleep(RETRY_DELAY) 
-
-    if not video_data:
-        return Response(content='{"error": "Failed to load stream data after multiple attempts"}', media_type="application/json", status_code=404)
+        await asyncio.sleep(RETRY_DELAY) 
 
     stream_url = ''
     
-    # ストリームURL抽出ロジック (m3u8 1080pを最優先)
     if 'm3u8' in video_data and '1080p' in video_data['m3u8']:
         stream_url = video_data['m3u8']['1080p']['url'].get('url', '')
 
@@ -314,15 +305,16 @@ async def get_stream_url(videoid: str):
         if len(video_streams) >= 5:
             stream_url = video_streams[4].get('url', '')
     
-    elif 'videourl' in video_data and '1080p' in video_data['videourl']:
-        stream_url = video_data['videourl']['1080p']['video'].get('url', '')
+    elif 'videourl' in video_data and video_data['videourl']:
+        # '1080p' in video_data['videourl'] のチェックを修正し、キーの存在を確認
+        if '1080p' in video_data['videourl']:
+            stream_url = video_data['videourl']['1080p']['video'].get('url', '')
     
     
     if stream_url:
         return {"videoid": videoid, "stream_url": stream_url}
     else:
-        return Response(content='{"error": "Stream URL not found (HLS 1080p or fallback)"}', media_type="application/json", status_code=404)
-
+        return Response(content='{"error": "Stream URL not found (HLS 1080p or fallback) in retrieved data"}', media_type="application/json", status_code=404)
 
 @app.get("/api/edu")
 async def get_edu_key_route():
