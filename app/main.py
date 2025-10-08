@@ -5,6 +5,7 @@ import datetime
 import urllib.parse
 from pathlib import Path 
 from typing import Union
+import asyncio # リトライ処理のために追加
 from fastapi import FastAPI, Response, Request, Cookie
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -24,6 +25,9 @@ def isJSON(json_str):
 max_time = 10.0
 max_api_wait_time = (3.0, 5.0)
 failed = "Load Failed"
+MAX_RETRIES = 3   # ストリームAPIリトライ回数
+RETRY_DELAY = 1.0 # ストリームAPIリトライ待機時間 (秒)
+
 
 invidious_api_data = {
     'video': [
@@ -99,19 +103,21 @@ def requestAPI(path, api_urls):
         except requests.exceptions.RequestException:
             continue
             
+    # APIFailoverがすべて失敗した場合、例外を投げる
     raise APITimeoutError("All available API instances failed to respond.")
 
 def getStreamData(videoid):
     """カスタムAPIから動画ストリームデータを取得する"""
-    # 目的のURL: https://siawaseok.duckdns.org/api/stream/:videoid/type2
     api_url = f"https://siawaseok.duckdns.org/api/stream/{videoid}/type2"
     try:
         res = requests.get(api_url, headers=getRandomUserAgent(), timeout=max_api_wait_time)
-        res.raise_for_status() # HTTPエラーを確認
+        res.raise_for_status() # HTTPエラーを確認 (4xx, 5xx)
         if isJSON(res.text):
             return json.loads(res.text)
     except requests.exceptions.RequestException as e:
         print(f"Stream API request failed: {e}")
+    except json.JSONDecodeError:
+        print("Stream API returned non-JSON data.")
     
     return None
 
@@ -156,16 +162,42 @@ async def getTrendingData(region: str):
     return [formatSearchData(data_dict) for data_dict in datas_dict if data_dict.get("type") == "video"]
 
 async def getChannelData(channelid):
-    t_text = await run_in_threadpool(requestAPI, f"/channels/{urllib.parse.quote(channelid)}", invidious_api.channel)
-    t = json.loads(t_text)
+    t = {}
+    try:
+        # 外部APIを呼び出す
+        t_text = await run_in_threadpool(requestAPI, f"/channels/{urllib.parse.quote(channelid)}", invidious_api.channel)
+        t = json.loads(t_text)
+    except APITimeoutError:
+        print(f"Error: Invidious API timeout for channel {channelid}")
+    except json.JSONDecodeError:
+        print(f"Error: JSON decode failed for channel {channelid}")
+        
+    
+    # データを取得（失敗時は空リストまたはデフォルト値）
     latest_videos = t.get('latestvideo') or t.get('latestVideos') or []
+    
+    # チャンネルアイコンの安全な取得
+    author_thumbnails = t.get("authorThumbnails", [{}])
+    author_icon_url = author_thumbnails[-1].get("url", failed) if author_thumbnails else failed
+
+    # チャンネルバナーの安全な取得とURLエンコード
+    author_banner_url = ''
+    author_banners = t.get('authorBanners', [])
+    if author_banners and author_banners[0].get("url"):
+        author_banner_url = urllib.parse.quote(author_banners[0]["url"], safe="-_.~/:")
+    
+    
+    # データを整理して返す
     return [[
-        {"type":"video", "title": i["title"], "id": i["videoId"], "author": t["author"], "published": i["publishedText"], "view_count_text": i['viewCountText'], "length_str": str(datetime.timedelta(seconds=i["lengthSeconds"]))}
+        {"type":"video", "title": i.get("title", failed), "id": i.get("videoId", failed), "author": t.get("author", failed), "published": i.get("publishedText", failed), "view_count_text": i.get('viewCountText', failed), "length_str": str(datetime.timedelta(seconds=i.get("lengthSeconds", 0)))}
         for i in latest_videos
     ], {
-        "channel_name": t.get("author", failed), "channel_icon": t.get("authorThumbnails", [{}])[-1].get("url", failed), "channel_profile": t.get("descriptionHtml", failed),
-        "author_banner": urllib.parse.quote(t.get("authorBanners", [{}])[0].get("url", ""), safe="-_.~/:") if 'authorBanners' in t and len(t['authorBanners']) else '',
-        "subscribers_count": t.get("subCount", failed), "tags": t.get("tags", [])
+        "channel_name": t.get("author", failed), 
+        "channel_icon": author_icon_url, 
+        "channel_profile": t.get("descriptionHtml", failed),
+        "author_banner": author_banner_url,
+        "subscribers_count": t.get("subCount", failed), 
+        "tags": t.get("tags", [])
     }]
 
 async def getPlaylistData(listid, page):
@@ -196,33 +228,43 @@ app.mount(
 async def get_stream_url(videoid: str):
     """
     カスタムAPIから動画ストリームデータを取得し、ストリームURLを返す。
-    優先順位: 
-    1. m3u8 -> 1080p の URL
-    2. videoStreams (以前の形式) の 5番目の URL
-    3. videourl -> 1080p の video URL
+    外部APIからの取得が失敗した場合、最大3回までリトライする。
     """
-    video_data = await run_in_threadpool(getStreamData, videoid)
+    video_data = None
     
+    # 外部APIからの取得を最大MAX_RETRIES回までループ
+    for attempt in range(MAX_RETRIES):
+        # getStreamDataはrequestsを使用しているため、スレッドプールで実行
+        data = await run_in_threadpool(getStreamData, videoid)
+        
+        if data:
+            video_data = data
+            break # 成功したらループを抜ける
+        
+        # 失敗した場合、最後の試行でなければ待機
+        if attempt < MAX_RETRIES - 1:
+            await asyncio.sleep(RETRY_DELAY) 
+
     if not video_data:
-        return Response(content='{"error": "Failed to load stream data"}', media_type="application/json", status_code=404)
+        # 複数回の試行後もデータ取得に失敗
+        return Response(content='{"error": "Failed to load stream data after multiple attempts"}', media_type="application/json", status_code=404)
 
     stream_url = ''
     
-    # 1. 新しい形式: 'm3u8' の中で最も高い画質 (例: 1080p) の URL を取得
+    # --- ストリームURL抽出ロジック (m3u8 1080pを最優先) ---
+    
+    # 1. 新しい形式: 'm3u8' の中で最も高い画質 (1080p) の URL を取得
     if 'm3u8' in video_data and '1080p' in video_data['m3u8']:
-        # 階層: m3u8 -> 1080p -> url -> url の値
         stream_url = video_data['m3u8']['1080p']['url'].get('url', '')
 
-    # 2. 1. のストリームURLが見つからなかった場合、以前の形式 (videoStreams) を確認
+    # 2. 以前の形式 (videoStreams) を確認 (5番目のURL)
     elif 'videoStreams' in video_data and video_data['videoStreams']:
         video_streams = video_data['videoStreams']
-        # 5番目の要素（インデックス 4）があるか確認
         if len(video_streams) >= 5:
             stream_url = video_streams[4].get('url', '')
     
-    # 3. どちらも見つからなかった場合、新しい形式の videourl の 1080p の video url をフォールバックとして取得
+    # 3. 新しい形式の videourl の 1080p の video url をフォールバックとして取得
     elif 'videourl' in video_data and '1080p' in video_data['videourl']:
-        # 階層: videourl -> 1080p -> video -> url の値
         stream_url = video_data['videourl']['1080p']['video'].get('url', '')
     
     
