@@ -115,9 +115,11 @@ def getStreamData(videoid):
         if isJSON(res.text):
             return json.loads(res.text)
     except requests.exceptions.RequestException as e:
-        print(f"Stream API request failed: {e}")
+        # print(f"Stream API request failed: {e}")
+        pass
     except json.JSONDecodeError:
-        print("Stream API returned non-JSON data.")
+        # print("Stream API returned non-JSON data.")
+        pass
     
     return None
 
@@ -167,17 +169,26 @@ async def getChannelData(channelid):
         # 外部APIを呼び出す
         t_text = await run_in_threadpool(requestAPI, f"/channels/{urllib.parse.quote(channelid)}", invidious_api.channel)
         t = json.loads(t_text)
+
+        # 最新動画がない場合、APIデータは無効とみなし、tをリセットして次の処理に進む
+        latest_videos_check = t.get('latestvideo') or t.get('latestVideos')
+        if not latest_videos_check:
+            print(f"API returned no latest videos for channel {channelid}. Treating as failure.")
+            t = {}
+
     except APITimeoutError:
-        print(f"Error: Invidious API timeout for channel {channelid}")
+        print(f"Error: Invidious API timeout for channel {channelid}. Using default data.")
     except json.JSONDecodeError:
-        print(f"Error: JSON decode failed for channel {channelid}")
+        print(f"Error: JSON decode failed for channel {channelid}. Using default data.")
+    except Exception as e:
+        print(f"An unexpected error occurred while fetching channel data for {channelid}: {e}")
         
     
     # データを取得（失敗時は空リストまたはデフォルト値）
     latest_videos = t.get('latestvideo') or t.get('latestVideos') or []
     
     # チャンネルアイコンの安全な取得
-    author_thumbnails = t.get("authorThumbnails", [{}])
+    author_thumbnails = t.get("authorThumbnails", [])
     author_icon_url = author_thumbnails[-1].get("url", failed) if author_thumbnails else failed
 
     # チャンネルバナーの安全な取得とURLエンコード
@@ -187,14 +198,14 @@ async def getChannelData(channelid):
         author_banner_url = urllib.parse.quote(author_banners[0]["url"], safe="-_.~/:")
     
     
-    # データを整理して返す
+    # データを整理して返す (tが空でもすべてのキーが存在することを保証)
     return [[
         {"type":"video", "title": i.get("title", failed), "id": i.get("videoId", failed), "author": t.get("author", failed), "published": i.get("publishedText", failed), "view_count_text": i.get('viewCountText', failed), "length_str": str(datetime.timedelta(seconds=i.get("lengthSeconds", 0)))}
         for i in latest_videos
     ], {
-        "channel_name": t.get("author", failed), 
+        "channel_name": t.get("author", "チャンネル情報取得失敗"), 
         "channel_icon": author_icon_url, 
-        "channel_profile": t.get("descriptionHtml", failed),
+        "channel_profile": t.get("descriptionHtml", "このチャンネルのプロフィール情報は見つかりませんでした。"),
         "author_banner": author_banner_url,
         "subscribers_count": t.get("subCount", failed), 
         "tags": t.get("tags", [])
@@ -309,7 +320,7 @@ async def hashtag_search(tag:str):
 @app.get("/channel/{channelid}", response_class=HTMLResponse)
 async def channel(channelid:str, request: Request, proxy: Union[str] = Cookie(None)):
     t = await getChannelData(channelid)
-    return templates.TemplateResponse("channel.html", {"request": request, "results": t[0], "channel_name": t[1]["channel_name"], "channel_icon": t[1]["channel_icon"], "channel_profile": t[1]["descriptionHtml"], "cover_img_url": t[1]["author_banner"], "subscribers_count": t[1]["subscribers_count"], "tags": t[1]["tags"], "proxy": proxy})
+    return templates.TemplateResponse("channel.html", {"request": request, "results": t[0], "channel_name": t[1]["channel_name"], "channel_icon": t[1]["channel_icon"], "channel_profile": t[1]["channel_profile"], "cover_img_url": t[1]["author_banner"], "subscribers_count": t[1]["subscribers_count"], "tags": t[1]["tags"], "proxy": proxy})
 
 @app.get("/playlist", response_class=HTMLResponse)
 async def playlist(list_id:str, request: Request, page:Union[int, None]=1, proxy: Union[str] = Cookie(None)):
