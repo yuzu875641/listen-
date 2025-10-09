@@ -110,17 +110,34 @@ def requestAPI(path, api_urls):
     raise APITimeoutError("All available API instances failed to respond.")
 
 def getStreamData(videoid):
-    """カスタムAPIから動画ストリームデータを取得する"""
+    """カスタムAPIから動画ストリームデータを取得する (リトライ機能追加)"""
     api_url = f"https://siawaseok.duckdns.org/api/stream/{videoid}/type2"
-    try:
-        res = requests.get(api_url, headers=getRandomUserAgent(), timeout=max_api_wait_time)
-        res.raise_for_status() # HTTPエラーを確認 (4xx, 5xx)
-        if isJSON(res.text):
-            return json.loads(res.text)
-    except requests.exceptions.RequestException as e:
-        pass
-    except json.JSONDecodeError:
-        pass
+    
+    for attempt in range(MAX_RETRIES):
+        try:
+            res = requests.get(api_url, headers=getRandomUserAgent(), timeout=max_api_wait_time)
+            res.raise_for_status() # HTTPエラーを確認 (4xx, 5xx)
+            
+            if isJSON(res.text):
+                # print(f"Stream data retrieved successfully on attempt {attempt + 1}.") # デバッグ出力はここでは省略
+                return json.loads(res.text)
+                
+        except requests.exceptions.RequestException as e:
+            # 接続エラー、タイムアウト、4xx/5xxエラーが発生
+            # print(f"Attempt {attempt + 1} failed for {videoid}: {e}") # デバッグ出力はここでは省略
+            
+            if attempt < MAX_RETRIES - 1:
+                time.sleep(RETRY_DELAY)
+            # else:
+            #     print(f"All {MAX_RETRIES} attempts failed for stream data: {videoid}") # デバッグ出力はここでは省略
+                
+        except json.JSONDecodeError:
+            # JSONデコードエラー
+            # print(f"JSON decode error on attempt {attempt + 1} for {videoid}.") # デバッグ出力はここでは省略
+            if attempt < MAX_RETRIES - 1:
+                time.sleep(RETRY_DELAY)
+            # else:
+            #     print(f"All {MAX_RETRIES} attempts failed due to JSON error: {videoid}") # デバッグ出力はここでは省略
     
     return None
 
@@ -286,6 +303,8 @@ app.mount(
 async def get_stream_url(videoid: str):
     video_data = None
     
+    # getStreamData内でリトライを行うため、ここでは無限ループを回避するために最大リトライ回数を設定しても良いが、
+    # 元のコードの意図（成功するまで待つ）を尊重し、asyncio.sleepを伴う無限ループを保持する。
     while True:
         data = await run_in_threadpool(getStreamData, videoid)
         
@@ -293,6 +312,7 @@ async def get_stream_url(videoid: str):
             video_data = data
             break
         
+        # getStreamData内でMAX_RETRIES回の同期リトライが失敗した場合、非同期に待機して再試行
         await asyncio.sleep(RETRY_DELAY) 
 
     stream_url = ''
