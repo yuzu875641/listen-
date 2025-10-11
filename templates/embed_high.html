@@ -32,7 +32,7 @@
 </head>
 <body>
     <div id="video-container">
-        <video id="video-player" controls autoplay playsinline muted>
+        <video id="video-player" controls playsinline muted>
             <source src="{{ video_url }}" type="video/mp4">
             ブラウザが動画タグをサポートしていません。
         </video>
@@ -46,27 +46,7 @@
         const video = document.getElementById('video-player');
         const audio = document.getElementById('audio-player');
 
-        // --- 自動再生 (ミュート) と初期同期のロジック ---
-
-        function syncAndPlay() {
-            // 音声と動画の再生時間を合わせる（追尾）
-            if (Math.abs(video.currentTime - audio.currentTime) > 0.2) {
-                audio.currentTime = video.currentTime;
-            }
-
-            // 動画と音声を同時に再生開始を試みる
-            // 動画はミュートされているため、自動再生が許可されやすい
-            const videoPromise = video.play();
-            const audioPromise = audio.play();
-
-            Promise.all([videoPromise, audioPromise]).catch(error => {
-                console.log("Autoplay was prevented (must be muted).", error);
-                // エラーが発生しても、ミュートされているため動画の再生が許可される可能性が高い
-            });
-        }
-
-        // --- ユーザー操作によるミュート解除 ---
-
+        // --- ユーザー操作によるミュート解除 (オプション) ---
         // ユーザーが動画領域を一度でも操作したらミュートを解除し、音声を有効にする
         video.addEventListener('click', () => {
             if (video.muted) {
@@ -77,13 +57,16 @@
 
         // --- 継続的な追尾（同期）処理 ---
 
-        // 動画の再生、一時停止、シークイベントにフックし、音声を追尾させる
+        // 動画の再生イベントにフックし、音声を同期・再生させる
         video.addEventListener('play', () => {
-            // 再生再開時にも同期を試みる
+            // 再生開始時、または再開時に同期を試みる
+            // 動画と音声の再生時間のずれが0.2秒以上あれば、音声時間を動画時間に合わせる（追尾）
             if (Math.abs(video.currentTime - audio.currentTime) > 0.2) {
                 audio.currentTime = video.currentTime;
             }
+            
             // 動画が再生されたら音声も再生（追尾）
+            // ユーザーが動画の再生ボタンを押した時に、このplayイベントが発火します
             audio.play().catch(e => console.error("Audio play failed on video play event:", e));
         });
 
@@ -97,15 +80,6 @@
             audio.currentTime = video.currentTime;
         });
 
-        // --- ページ読み込み完了時の処理 ---
-
-        // ページロード後、すぐに再生開始と同期を試みる
-        video.addEventListener('loadedmetadata', syncAndPlay);
-        
-        // loadedmetadataイベントが間に合わなかった場合に備えて一度実行
-        if (video.readyState >= 2) { 
-            syncAndPlay();
-        }
     </script>
 </body>
 </html>
