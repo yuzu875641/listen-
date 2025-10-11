@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ video_title }} - High Quality Stream</title>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: black;
+        }
+        #video-container {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        #video-player {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+        #audio-player {
+            display: none; /* 音声は非表示 */
+        }
+    </style>
+</head>
+<body>
+    <div id="video-container">
+        <video id="video-player" controls autoplay playsinline muted>
+            <source src="{{ video_url }}" type="video/mp4">
+            ブラウザが動画タグをサポートしていません。
+        </video>
+        
+        <audio id="audio-player" preload="auto">
+            <source src="{{ audio_url }}" type="audio/mp4">
+        </audio>
+    </div>
+
+    <script>
+        const video = document.getElementById('video-player');
+        const audio = document.getElementById('audio-player');
+
+        // --- 自動再生 (ミュート) と初期同期のロジック ---
+
+        function syncAndPlay() {
+            // 音声と動画の再生時間を合わせる（追尾）
+            if (Math.abs(video.currentTime - audio.currentTime) > 0.2) {
+                audio.currentTime = video.currentTime;
+            }
+
+            // 動画と音声を同時に再生開始を試みる
+            // 動画はミュートされているため、自動再生が許可されやすい
+            const videoPromise = video.play();
+            const audioPromise = audio.play();
+
+            Promise.all([videoPromise, audioPromise]).catch(error => {
+                console.log("Autoplay was prevented (must be muted).", error);
+                // エラーが発生しても、ミュートされているため動画の再生が許可される可能性が高い
+            });
+        }
+
+        // --- ユーザー操作によるミュート解除 ---
+
+        // ユーザーが動画領域を一度でも操作したらミュートを解除し、音声を有効にする
+        video.addEventListener('click', () => {
+            if (video.muted) {
+                video.muted = false; // ミュート解除
+                console.log("Mute removed by user interaction. Sound enabled.");
+            }
+        });
+
+        // --- 継続的な追尾（同期）処理 ---
+
+        // 動画の再生、一時停止、シークイベントにフックし、音声を追尾させる
+        video.addEventListener('play', () => {
+            // 再生再開時にも同期を試みる
+            if (Math.abs(video.currentTime - audio.currentTime) > 0.2) {
+                audio.currentTime = video.currentTime;
+            }
+            // 動画が再生されたら音声も再生（追尾）
+            audio.play().catch(e => console.error("Audio play failed on video play event:", e));
+        });
+
+        video.addEventListener('pause', () => {
+            // 動画が一時停止したら音声も一時停止（追尾）
+            audio.pause();
+        });
+        
+        video.addEventListener('seeking', () => {
+            // 動画がシークされたら音声もシーク（追尾）
+            audio.currentTime = video.currentTime;
+        });
+
+        // --- ページ読み込み完了時の処理 ---
+
+        // ページロード後、すぐに再生開始と同期を試みる
+        video.addEventListener('loadedmetadata', syncAndPlay);
+        
+        // loadedmetadataイベントが間に合わなかった場合に備えて一度実行
+        if (video.readyState >= 2) { 
+            syncAndPlay();
+        }
+    </script>
+</body>
+</html>
