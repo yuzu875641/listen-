@@ -280,11 +280,14 @@ def get_360p_single_url(videoid: str) -> str:
 
 
 
-
 def fetch_high_quality_streams(videoid: str) -> dict:
     """
-    外部APIから動画データを取得し、最高画質の動画URL（音声なし）と
-    最高音質の音声URLを抽出して返す。
+    外部APIから動画データを取得し、1080pの動画URL（音声なし）と
+    最高音質の音声URLを抽出して返す。1080pがない場合は、利用可能な
+    最高画質のURLを選択する。
+    
+    前提: requests, json, getRandomUserAgent, max_api_wait_time, APITimeoutError 
+          は外部で定義/インポートされていること。
     """
     YTDL_API_URL = f"https://ytdl-test-eta.vercel.app/dl/{videoid}"
     
@@ -301,26 +304,37 @@ def fetch_high_quality_streams(videoid: str) -> dict:
         if not formats:
             raise ValueError("External API response is missing video formats.")
             
-        # 画質文字列 ("2160p60", "720p"など) を比較可能な数値に変換するヘルパー
+        # 画質文字列を比較可能なスコアに変換
         def get_video_quality_score(f):
             quality_str = f.get("quality", "0").lower().replace("p", "").replace("p60", "60").replace("p30", "30").replace("high", "0")
-            # フレームレートを考慮してスコアを計算 (例: 2160p60 > 2160p30)
-            if "60" in quality_str:
-                return int(quality_str.replace("60", "")) * 100 + 60
-            else:
-                return int(quality_str) * 100 + 30
+            try:
+                if "60" in quality_str:
+                    return int(quality_str.replace("60", "")) * 100 + 60
+                else:
+                    return int(quality_str) * 100 + 30
+            except ValueError:
+                return 0
             
-        # 1. 最高画質の動画ストリーム (acodec: none, separate video stream) を探す
+        # 1. 動画ストリーム（音声なし）の抽出とソート
         video_formats = [f for f in formats if f.get("acodec") == "none" and f.get("vcodec") != "none"]
-        
-        # 品質スコアでソートし、最高画質を選択
         video_formats.sort(key=get_video_quality_score, reverse=True)
-        high_quality_video_url = video_formats[0]["url"] if video_formats else None
-
-        # 2. 最高音質の音声ストリーム (vcodec: none, separate audio stream) を探す
+        
+        high_quality_video_url = None
+        
+        # 1080pのストリームを優先的に探す
+        target_1080p_formats = [f for f in video_formats if "1080" in f.get("quality", "")]
+        
+        if target_1080p_formats:
+            # 1080pが存在すれば、その中で最高の品質を選択（ソート済みのため先頭）
+            high_quality_video_url = target_1080p_formats[0]["url"]
+        elif video_formats:
+            # 1080pがない場合は、利用可能な最高画質を選択
+            high_quality_video_url = video_formats[0]["url"]
+        
+        # 2. 音声ストリーム（映像なし）の抽出とソート
         audio_formats = [f for f in formats if f.get("vcodec") == "none" and f.get("acodec") != "none"]
         
-        # ファイルサイズを品質の代理指標としてソートし、最高音質を選択
+        # ファイルサイズ（品質の代理指標）でソートし、最高音質を選択
         audio_formats.sort(key=lambda x: int(x.get("filesize", 0) or 0), reverse=True) 
         high_quality_audio_url = audio_formats[0]["url"] if audio_formats else None
         
@@ -334,10 +348,11 @@ def fetch_high_quality_streams(videoid: str) -> dict:
         }
 
     except requests.exceptions.HTTPError as e:
+        # APITimeoutError は外部で定義されたカスタム例外と仮定
         raise APITimeoutError(f"External stream API returned HTTP error: {e.response.status_code}") from e
     except (requests.exceptions.RequestException, ValueError, json.JSONDecodeError) as e:
+        # APITimeoutError は外部で定義されたカスタム例外と仮定
         raise APITimeoutError(f"Error processing external stream API response: {e}") from e
-        
 # 新規追加: /api/edu から呼び出す外部APIヘルパー関数
 async def fetch_embed_url_from_external_api(videoid: str) -> str:
     """
