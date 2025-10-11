@@ -15,6 +15,12 @@
                 style="padding: 8px 15px; cursor: pointer; border: 1px solid var(--yt-sub-text); color: var(--yt-text); background-color: var(--yt-bg);">
                 高画質再生
             </button>
+
+            <a href="#" id="download-btn" 
+                style="padding: 8px 15px; cursor: pointer; border: 1px solid var(--yt-sub-text); color: var(--yt-text); background-color: var(--yt-bg); text-decoration: none; display: flex; align-items: center;"
+                download>
+                ダウンロード
+            </a>
         
             <button id="youtube-btn" onclick="showPlayer('youtube-embed-player');" 
                 style="padding: 8px 15px; cursor: pointer; border: 1px solid var(--yt-sub-text); color: var(--yt-text); background-color: var(--yt-bg);">
@@ -36,7 +42,6 @@
                    controls="" 
                    loadedmetadata="settime()" 
                    loop="">
-                {# テンプレート初期のソースは、動的ロードに切り替わるため、実際には使用されない #}
                 {% for videourl in videourls%}
                     <source src="{{ videourl }}">
                 {% endfor %}
@@ -128,14 +133,17 @@
 </div>
 
 <script>
-    let cached360pUrl = null; // 360p URLをキャッシュするための変数
+    let cached360pUrl = null; 
 
     const videoElement = document.getElementById('player');
     const videoId = '{{ videoid }}';
+    const videoTitle = '{{ video_title | e("js") }}'; // タイトルをJavaScriptで安全に利用
     const highQualityBtn = document.getElementById('high-quality-btn');
     const yuzuBtn = document.getElementById('yuzu-btn');
     const youtubeBtn = document.getElementById('youtube-btn');
     const eduBtn = document.getElementById('edu-btn');
+    const downloadBtnLink = document.getElementById('download-btn'); // 【新規追加】
+
     const yuzuPlayer = document.getElementById('yuzutube-player');
     const highQualityPlayer = document.getElementById('high-quality-player');
     const youtubePlayer = document.getElementById('youtube-embed-player');
@@ -155,13 +163,13 @@
             return cached360pUrl;
         }
 
+        // 通常再生ボタンのローディング表示 (既存)
         if (yuzuBtn) {
             yuzuBtn.textContent = '通常再生 読み込み中...';
             yuzuBtn.disabled = true;
         }
         
         try {
-            // Pythonで定義した /api/stream_360p_url/{videoid} ルートを呼び出す
             const response = await fetch(`/api/stream_360p_url/${videoId}`); 
             if (!response.ok) throw new Error('360pストリームの取得に失敗しました。');
             const data = await response.json();
@@ -170,6 +178,7 @@
             
             cached360pUrl = data.stream_url;
             
+            // 成功時の通常再生ボタン表示 (既存)
             if (yuzuBtn) {
                 yuzuBtn.textContent = '通常再生';
                 yuzuBtn.disabled = false;
@@ -177,6 +186,7 @@
             return cached360pUrl;
         } catch (error) {
             console.error('360p URLの取得エラー:', error);
+            // 失敗時の通常再生ボタン表示 (既存)
             if (yuzuBtn) {
                 yuzuBtn.textContent = '通常再生 (失敗)';
                 yuzuBtn.disabled = true;
@@ -184,6 +194,38 @@
             }
             alert('360pストリーム（音声付き）の取得に失敗しました。');
             return null;
+        }
+    }
+
+
+    /**
+     * 【新規関数】ダウンロードボタンのURLと属性を設定する
+     */
+    async function setupDownloadButton(videoId, title) {
+        if (!downloadBtnLink) return;
+
+        downloadBtnLink.textContent = 'ダウンロード (URL取得中...)';
+        downloadBtnLink.style.pointerEvents = 'none'; // クリック無効化
+        downloadBtnLink.style.opacity = '0.5'; // 見た目を無効化っぽく
+
+        try {
+            const url360p = await get360pUrl(videoId); // URLを再利用または取得
+            
+            if (url360p) {
+                downloadBtnLink.href = url360p;
+                // ファイル名を '動画タイトル_360p.mp4' の形式で設定
+                downloadBtnLink.setAttribute('download', `${title}_360p.mp4`); 
+                downloadBtnLink.textContent = 'ダウンロード';
+                downloadBtnLink.style.pointerEvents = 'auto'; // クリック有効化
+                downloadBtnLink.style.opacity = '1.0';
+            } else {
+                downloadBtnLink.href = '#';
+                downloadBtnLink.textContent = 'ダウンロード (不可)';
+            }
+        } catch (error) {
+            downloadBtnLink.href = '#';
+            downloadBtnLink.textContent = 'ダウンロード (エラー)';
+            console.error('Download setup error:', error);
         }
     }
 
@@ -226,7 +268,6 @@
         // <video>プレーヤーを停止 (通常再生用)
         if (videoElement) {
             videoElement.pause();
-            // iframeに切り替える際、ソースをリセットしてロードを停止
             if (playerId !== 'yuzutube-player') {
                 videoElement.src = ''; 
                 videoElement.load();
@@ -234,9 +275,9 @@
         }
 
         // iframeのURLをリセット/停止
-        if (youtubeIframe) youtubeIframe.src = `https://www.youtube-nocookie.com/embed/${videoId}`; // autoplayを削除
+        if (youtubeIframe) youtubeIframe.src = `https://www.youtube-nocookie.com/embed/${videoId}`; 
         if (eduIframe) eduIframe.src = ''; 
-        if (highQualityIframe) highQualityIframe.src = ''; // 高画質Iframeも停止
+        if (highQualityIframe) highQualityIframe.src = ''; 
 
 
         // --- 選択されたプレーヤーの表示と処理 ---
@@ -249,14 +290,13 @@
                 const url360p = await get360pUrl(videoId);
                 
                 if (url360p) {
-                    videoElement.src = url360p; // <video>タグにURLを設定
+                    videoElement.src = url360p; 
                     videoElement.load();
                     if (yuzuBtn) yuzuBtn.style.backgroundColor = 'var(--yt-light-dark)';
                 } else {
-                    return; // URL取得失敗
+                    return; 
                 }
             }
-            // その他のmode ('normal'以外) はここでは無視されるか、既存の{{ videourls }}が使われる
             
         } else if (playerId === 'high-quality-player') {
             
@@ -264,8 +304,6 @@
             
             if (highQualityIframe) {
                 const streamHighUrl = `/api/stream_high/${videoId}`;
-                
-                // srcを設定してロード（動的HQストリームのカスタムプレイヤー）
                 if (highQualityIframe.src === '' || !highQualityIframe.src.includes(streamHighUrl)) {
                     highQualityIframe.src = streamHighUrl;
                 }
@@ -279,7 +317,6 @@
             
             if (youtubeBtn) youtubeBtn.style.backgroundColor = 'var(--yt-light-dark)';
             
-            // YouTube埋め込みを自動再生
             if (youtubeIframe) {
                 let currentSrc = youtubeIframe.src;
                 if (!currentSrc.includes('autoplay=1')) {
@@ -294,7 +331,6 @@
             
             if (eduBtn) eduBtn.style.backgroundColor = 'var(--yt-light-dark)';
             
-            // EDU iframeのsrcを設定してロード
             if (eduIframe) {
                 if (eduIframe.src === '' || !eduIframe.src.includes(`/api/edu/${videoId}`)) {
                     eduIframe.src = `/api/edu/${videoId}`;
@@ -310,6 +346,9 @@
         
         // ページロード時は通常再生をアクティブにする
         showPlayer('yuzutube-player', 'normal'); 
+
+        // 【新規追加】ダウンロードボタンのURLを非同期で設定
+        setupDownloadButton(videoId, videoTitle);
     });
 </script>
 {% endblock %}
