@@ -129,6 +129,7 @@ def getEduKey():
     
     return None
 
+
 def formatSearchData(data_dict, failed="Load Failed"):
     if data_dict["type"] == "video": 
         return {"type": "video", "title": data_dict.get("title", failed), "id": data_dict.get("videoId", failed), "author": data_dict.get("author", failed), "published": data_dict.get("publishedText", failed), "length": str(datetime.timedelta(seconds=data_dict.get("lengthSeconds", 0))), "view_count_text": data_dict.get("viewCountText", failed)}
@@ -226,7 +227,65 @@ async def getCommentsData(videoid):
     t_text = await run_in_threadpool(requestAPI, f"/comments/{urllib.parse.quote(videoid)}", invidious_api.comments)
     t = json.loads(t_text)["comments"]
     return [{"author": i["author"], "authoricon": i["authorThumbnails"][-1]["url"], "authorid": i["authorId"], "body": i["contentHtml"].replace("\n", "<br>")} for i in t]
+# --- New Helper Function for /api/stream_high ---
 
+def fetch_high_quality_streams(videoid: str) -> dict:
+    """
+    外部APIから動画データを取得し、最高画質の動画URL（音声なし）と
+    最高音質の音声URLを抽出して返す。
+    """
+    YTDL_API_URL = f"https://ytdl-test-eta.vercel.app/dl/{videoid}"
+    
+    try:
+        res = requests.get(
+            YTDL_API_URL, 
+            headers=getRandomUserAgent(), 
+            timeout=max_api_wait_time
+        )
+        res.raise_for_status()
+        data = res.json()
+        
+        formats = data.get("res_data", {}).get("formats", [])
+        if not formats:
+            raise ValueError("External API response is missing video formats.")
+            
+        # 画質文字列 ("2160p60", "720p"など) を比較可能な数値に変換するヘルパー
+        def get_video_quality_score(f):
+            quality_str = f.get("quality", "0").lower().replace("p", "").replace("p60", "60").replace("p30", "30").replace("high", "0")
+            # フレームレートを考慮してスコアを計算 (例: 2160p60 > 2160p30)
+            if "60" in quality_str:
+                return int(quality_str.replace("60", "")) * 100 + 60
+            else:
+                return int(quality_str) * 100 + 30
+            
+        # 1. 最高画質の動画ストリーム (acodec: none, separate video stream) を探す
+        video_formats = [f for f in formats if f.get("acodec") == "none" and f.get("vcodec") != "none"]
+        
+        # 品質スコアでソートし、最高画質を選択
+        video_formats.sort(key=get_video_quality_score, reverse=True)
+        high_quality_video_url = video_formats[0]["url"] if video_formats else None
+
+        # 2. 最高音質の音声ストリーム (vcodec: none, separate audio stream) を探す
+        audio_formats = [f for f in formats if f.get("vcodec") == "none" and f.get("acodec") != "none"]
+        
+        # ファイルサイズを品質の代理指標としてソートし、最高音質を選択
+        audio_formats.sort(key=lambda x: int(x.get("filesize", 0) or 0), reverse=True) 
+        high_quality_audio_url = audio_formats[0]["url"] if audio_formats else None
+        
+        if not high_quality_video_url or not high_quality_audio_url:
+            raise ValueError("Could not find both high-quality video and audio streams.")
+            
+        return {
+            "video_url": high_quality_video_url, 
+            "audio_url": high_quality_audio_url,
+            "title": data.get("res_data", {}).get("title", "Video")
+        }
+
+    except requests.exceptions.HTTPError as e:
+        raise APITimeoutError(f"External stream API returned HTTP error: {e.response.status_code}") from e
+    except (requests.exceptions.RequestException, ValueError, json.JSONDecodeError) as e:
+        raise APITimeoutError(f"Error processing external stream API response: {e}") from e
+        
 # 新規追加: /api/edu から呼び出す外部APIヘルパー関数
 async def fetch_embed_url_from_external_api(videoid: str) -> str:
     """
@@ -277,6 +336,39 @@ async def get_edu_key_route():
     else:
         return Response(content='{"error": "Failed to retrieve key from Kahoot API"}', media_type="application/json", status_code=500)
 
+# 新規追加: /api/stream_high/{videoid} ルート (最高画質埋め込み)
+@app.get('/api/stream_high/{videoid}', response_class=HTMLResponse)
+async def embed_high_quality_video(request: Request, videoid: str, proxy: Union[str] = Cookie(None)):
+    """
+    /api/stream_high/<videoid> ルート。
+    外部APIから最高画質の動画URL（音声なし）と最高音質の音声URLを取得し、
+    それらを埋め込んだ全画面表示用の HTML ページを返します。
+    """
+    try:
+        # 外部APIから最高画質のストリームURLを取得
+        stream_data = await run_in_threadpool(fetch_high_quality_streams, videoid)
+        
+    except APITimeoutError as e:
+        print(f"Error calling external stream API: {e}")
+        return Response(f"Failed to retrieve high-quality stream URLs: {e}", status_code=503)
+        
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}")
+        return Response("An unexpected error occurred while retrieving stream data.", status_code=500)
+
+    # 取得した埋め込み URL をテンプレートに渡し、HTML をレンダリングして返す
+    return templates.TemplateResponse(
+        'embed_high.html', 
+        {
+            "request": request, 
+            "video_url": stream_data["video_url"],
+            "audio_url": stream_data["audio_url"],
+            "video_title": stream_data["title"],
+            "videoid": videoid,
+            "proxy": proxy
+        }
+    )
+    
 # 新規追加: /api/edu/{videoid} ルート (全画面埋め込み)
 @app.get('/api/edu/{videoid}', response_class=HTMLResponse)
 async def embed_edu_video(request: Request, videoid: str, proxy: Union[str] = Cookie(None)):
