@@ -11,7 +11,7 @@
                 通常再生
             </button>
             
-            <button id="high-quality-btn" onclick="showPlayer('yuzutube-player', 'high_quality');" 
+            <button id="high-quality-btn" onclick="showPlayer('high-quality-player', 'high_quality');" 
                 style="padding: 8px 15px; cursor: pointer; border: 1px solid var(--yt-sub-text); color: var(--yt-text); background-color: var(--yt-bg);">
                 高画質再生
             </button>
@@ -27,7 +27,7 @@
             </button>
         </div>
 
-        {# 既存のYuzutube Player #}
+        {# 既存のYuzutube Player (通常再生用) #}
         <div id="yuzutube-player" style="display: none; width: 100%; aspect-ratio: 16/9; background-color: black; position: relative; overflow: hidden; border-radius: 8px;">
             <video style="outline:none;width:100%; height: 100%;" playsinline="" 
                    poster="/thumbnail?v={{ videoid }}" 
@@ -41,6 +41,18 @@
                 {% endfor %}
                 お使いのブラウザは動画再生に対応していません。
             </video>
+        </div>
+
+        {# 【新規追加】高画質再生用のIframe Player。/api/stream_high/{videoid}を埋め込む #}
+        <div id="high-quality-player" style="display: none; width: 100%; aspect-ratio: 16/9; position: relative; overflow: hidden; border-radius: 8px;">
+            <iframe width="100%" height="100%"
+                src=""
+                frameborder="0"
+                allow="fullscreen; picture-in-picture"
+                allowfullscreen
+                id="high-quality-iframe"
+                style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;">
+            </iframe>
         </div>
 
         {# 既存のYoutube Embed Player #}
@@ -115,8 +127,8 @@
 </div>
 
 <script>
-    let cachedHighQualityUrl = null; 
-    
+    // 不要になった cachedHighQualityUrl と getHighQualityUrl は削除します
+
     const videoElement = document.getElementById('player');
     const videoId = '{{ videoid }}';
     const highQualityBtn = document.getElementById('high-quality-btn');
@@ -124,49 +136,18 @@
     const youtubeBtn = document.getElementById('youtube-btn');
     const eduBtn = document.getElementById('edu-btn');
     const yuzuPlayer = document.getElementById('yuzutube-player');
+    const highQualityPlayer = document.getElementById('high-quality-player'); // 【新規追加】
     const youtubePlayer = document.getElementById('youtube-embed-player');
     const eduPlayer = document.getElementById('edu-embed-player');
+    
+    // Iframe要素
+    const highQualityIframe = document.getElementById('high-quality-iframe'); // 【新規追加】
     const youtubeIframe = document.getElementById('youtube-iframe');
-    const eduIframe = document.getElementById('edu-iframe'); // 新規追加
+    const eduIframe = document.getElementById('edu-iframe'); 
+    
     const firstSource = videoElement ? videoElement.querySelector('source') : null;
 
-    /**
-     * 高画質ストリームURLを取得する（キャッシュ利用）
-     */
-    async function getHighQualityUrl(videoId) {
-        if (cachedHighQualityUrl) {
-            return cachedHighQualityUrl;
-        }
-
-        if (highQualityBtn) {
-            highQualityBtn.textContent = '高画質読み込み中...';
-            highQualityBtn.disabled = true;
-        }
-        
-        try {
-            const response = await fetch(`/api/stream/${videoId}`);
-            if (!response.ok) throw new Error('高画質ストリームの取得に失敗しました。');
-            const data = await response.json();
-            cachedHighQualityUrl = data.stream_url;
-            
-            if (highQualityBtn) {
-                highQualityBtn.textContent = '高画質再生';
-                highQualityBtn.disabled = false;
-            }
-            return cachedHighQualityUrl;
-        } catch (error) {
-            console.error('高画質URLの取得エラー:', error);
-            if (highQualityBtn) {
-                highQualityBtn.textContent = '高画質失敗';
-                highQualityBtn.disabled = true;
-                highQualityBtn.style.backgroundColor = 'red';
-            }
-            alert('高画質ストリームの取得に失敗しました。通常再生で試してください。');
-            return null;
-        }
-    }
-
-    // コメントロード関数
+    // コメントロード関数 (変更なし)
     function loadComments(videoId) {
         const commentList = document.getElementById('comment-list');
         commentList.innerHTML = '<div style="color: var(--yt-sub-text);">コメントを読み込み中...</div>';
@@ -197,69 +178,63 @@
 
         // 全プレーヤーを非表示に設定
         yuzuPlayer.style.display = 'none';
+        highQualityPlayer.style.display = 'none'; // 【新規追加】
         youtubePlayer.style.display = 'none';
         eduPlayer.style.display = 'none';
         
-        // 通常/高画質プレーヤーの動画を停止
-        if (videoElement) videoElement.pause();
-        
-        // YouTube埋め込みの自動再生を停止
-        if (youtubeIframe && youtubeIframe.src && youtubeIframe.src.includes('autoplay=1')) {
-            let currentSrc = youtubeIframe.src;
-            youtubeIframe.src = currentSrc.replace(/&autoplay=1/, '').replace(/\?autoplay=1&/, '?').replace('?autoplay=1', '');
+        // 通常/高画質プレーヤーの動画を停止 (Yuzutube Playerのみを停止)
+        if (videoElement) {
+            videoElement.pause();
+            videoElement.src = ''; // ソースをリセット
+            videoElement.load();
         }
+        
+        // iframeのURLをリセット (動画を停止)
+        if (youtubeIframe) youtubeIframe.src = `https://www.youtube-nocookie.com/embed/${videoId}`; // autoplayを削除
+        if (eduIframe) eduIframe.src = ''; 
+        // highQualityIframeは後でsrcを設定するため、ここではリセットしない
 
         // --- 選択されたプレーヤーの表示と処理 ---
         
         if (playerId === 'yuzutube-player') {
             yuzuPlayer.style.display = 'block';
             
-            // EDU iframeのsrcをリセット
-            if (eduIframe) eduIframe.src = '';
-
-            if (mode === 'high_quality') {
-                
-                const highQualityUrl = await getHighQualityUrl(videoId);
-
-                if (highQualityUrl) {
-                    if (videoElement) {
-                        videoElement.src = highQualityUrl;
-                        videoElement.load();
-                    }
-                    
-                    if (highQualityBtn) highQualityBtn.style.backgroundColor = 'var(--yt-light-dark)';
-                    
-                } else {
-                    return;
-                }
-
-            } else {
-                
-                if (videoElement && firstSource) {
-                    videoElement.src = firstSource.src;
-                    videoElement.load();
-                }
-
-                if (yuzuBtn) yuzuBtn.style.backgroundColor = 'var(--yt-light-dark)';
+            // Yuzutube Playerのソースを通常再生に戻す
+            if (videoElement && firstSource) {
+                // videoElement.src = firstSource.src; // 最初のソースをそのまま使う
+                // 初期のソースはテンプレートで設定されているため、ここではロードするだけで良い場合もあるが、確実なロードのために再設定
+                videoElement.src = '{{ videourls | first }}'; // 最初のURLを取得
+                videoElement.load();
             }
+
+            if (yuzuBtn) yuzuBtn.style.backgroundColor = 'var(--yt-light-dark)';
             
-            if (videoElement) {
-                videoElement.play().catch(error => {});
+        } else if (playerId === 'high-quality-player') {
+            
+            highQualityPlayer.style.display = 'block'; // 【新規追加】
+            
+            if (highQualityIframe) {
+                // /api/stream_high/:videoid を埋め込む
+                const streamHighUrl = `/api/stream_high/${videoId}`;
+                
+                // srcがすでに設定されていなければ設定する（リロード防止）
+                if (highQualityIframe.src === '' || !highQualityIframe.src.includes(streamHighUrl)) {
+                    highQualityIframe.src = streamHighUrl;
+                }
             }
+
+            if (highQualityBtn) highQualityBtn.style.backgroundColor = 'var(--yt-light-dark)';
             
         } else if (playerId === 'youtube-embed-player') {
             
             youtubePlayer.style.display = 'block';
             
-            // EDU iframeのsrcをリセット
-            if (eduIframe) eduIframe.src = '';
-            
             if (youtubeBtn) youtubeBtn.style.backgroundColor = 'var(--yt-light-dark)';
             
             // YouTube埋め込みを自動再生
-            if (youtubeIframe && youtubeIframe.src) {
+            if (youtubeIframe) {
                 let currentSrc = youtubeIframe.src;
-                youtubeIframe.src = ''; 
+                // 自動再生フラグを追加
                 if (!currentSrc.includes('autoplay=1')) {
                     currentSrc += currentSrc.includes('?') ? '&autoplay=1' : '?autoplay=1';
                 }
