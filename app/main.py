@@ -227,7 +227,59 @@ async def getCommentsData(videoid):
     t_text = await run_in_threadpool(requestAPI, f"/comments/{urllib.parse.quote(videoid)}", invidious_api.comments)
     t = json.loads(t_text)["comments"]
     return [{"author": i["author"], "authoricon": i["authorThumbnails"][-1]["url"], "authorid": i["authorId"], "body": i["contentHtml"].replace("\n", "<br>")} for i in t]
-# --- New Helper Function for /api/stream_high ---
+# --- New Helper ---
+
+
+def get_360p_single_url(videoid: str) -> str:
+    """
+    外部APIから音声付きの360p単一ファイルのURLを抽出して返す (itag 18 優先)。
+    """
+    YTDL_API_URL = f"https://ytdl-test-eta.vercel.app/dl/{videoid}"
+    
+    try:
+        res = requests.get(
+            YTDL_API_URL, 
+            headers=getRandomUserAgent(), 
+            timeout=max_api_wait_time
+        )
+        res.raise_for_status()
+        data = res.json()
+        
+        formats: List[Dict[str, Any]] = data.get("res_data", {}).get("formats", [])
+        if not formats:
+            raise ValueError("External API response is missing video formats.")
+            
+        # 1. itag 18 を探し、映像と音声の両方があることを確認
+        target_format = next((
+            f for f in formats 
+            if f.get("itag") == 18 and 
+               f.get("vcodec") != "none" and 
+               f.get("acodec") != "none"
+        ), None)
+        
+        if not target_format:
+            # 2. itag 18 が見つからない場合、"360p" を含み音声付きのものを探す（フォールバック）
+            target_format = next((
+                f for f in formats 
+                if "360p" in f.get("quality", "") and 
+                   f.get("vcodec") != "none" and 
+                   f.get("acodec") != "none"
+            ), None)
+
+        if not target_format or not target_format.get("url"):
+            raise ValueError("Could not find a single 360p stream with audio (itag 18 or similar).")
+            
+        return target_format["url"]
+
+    except requests.exceptions.RequestException as e:
+        # ネットワークまたはタイムアウトエラー
+        raise APITimeoutError(f"Error connecting to external API: {e}") from e
+    except (ValueError, json.JSONDecodeError) as e:
+        # JSON解析またはデータ不足エラー
+        raise ValueError(f"Error processing external stream API response: {e}") from e
+
+
+
 
 def fetch_high_quality_streams(videoid: str) -> dict:
     """
@@ -368,7 +420,17 @@ async def embed_high_quality_video(request: Request, videoid: str, proxy: Union[
             "proxy": proxy
         }
     )
-    
+
+@app.get("/api/stream_360p_url/{videoid}")
+async def get_360p_stream_url_route(videoid: str):
+    """360p音声付き単一ファイルのURLをJSONで返す"""
+    try:
+        # ネットワークI/Oをスレッドプールに任せる
+        url = await run_in_threadpool(get_360p_single_url, videoid)
+        return {"stream_url": url}
+    except Exception as e:
+        return Response(content=f'{{"error": "Failed to get 360p URL: {e}"}}', media_type="application/json", status_code=503)
+
 # 新規追加: /api/edu/{videoid} ルート (全画面埋め込み)
 @app.get('/api/edu/{videoid}', response_class=HTMLResponse)
 async def embed_edu_video(request: Request, videoid: str, proxy: Union[str] = Cookie(None)):
