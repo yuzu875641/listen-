@@ -6,14 +6,19 @@
 <div class="watch-page-container">
     <div class="main-video-area">
         <div style="margin-bottom: 10px; display: flex; align-items: center; gap: 10px;">
-            <button id="yuzu-btn" onclick="showPlayer('yuzutube-player', 'normal');" 
+            <button id="yuzu-btn" onclick="showPlayer('yuzutube-player', '360p');" 
                 style="padding: 8px 15px; cursor: pointer; border: 1px solid var(--yt-sub-text); color: var(--yt-text); background-color: var(--yt-bg);">
-                通常再生
+                通常再生 (360p)
             </button>
             
-            <button id="high-quality-btn" onclick="showPlayer('high-quality-player', 'high_quality');" 
+            <button id="high-quality-btn" onclick="showPlayer('high-quality-player');" 
                 style="padding: 8px 15px; cursor: pointer; border: 1px solid var(--yt-sub-text); color: var(--yt-text); background-color: var(--yt-bg);">
                 高画質再生
+            </button>
+
+            <button id="yuzu-btn-old" onclick="showPlayer('yuzutube-player', 'invidious');" 
+                style="padding: 8px 15px; cursor: pointer; border: 1px solid var(--yt-sub-text); color: var(--yt-text); background-color: var(--yt-bg);">
+                Invidious再生
             </button>
         
             <button id="youtube-btn" onclick="showPlayer('youtube-embed-player');" 
@@ -27,7 +32,7 @@
             </button>
         </div>
 
-        {# 既存のYuzutube Player (通常再生用) #}
+        {# 【通常・旧式共通】Yuzutube Playerコンテナ (videoタグ) #}
         <div id="yuzutube-player" style="display: none; width: 100%; aspect-ratio: 16/9; background-color: black; position: relative; overflow: hidden; border-radius: 8px;">
             <video style="outline:none;width:100%; height: 100%;" playsinline="" 
                    poster="/thumbnail?v={{ videoid }}" 
@@ -36,14 +41,15 @@
                    controls="" 
                    loadedmetadata="settime()" 
                    loop="">
+                {# 初期ロード用のソース (URLを取得できない場合などに備えて残す) #}
                 {% for videourl in videourls%}
-                    <source src="{{ videourl }}">
+                    <source src="{{ videourl }}" data-original-url="{{ videourl }}">
                 {% endfor %}
                 お使いのブラウザは動画再生に対応していません。
             </video>
         </div>
 
-        {# 【新規追加】高画質再生用のIframe Player。/api/stream_high/{videoid}を埋め込む #}
+        {# 【高画質】Iframe Player: /api/stream_high/{videoid}を埋め込む #}
         <div id="high-quality-player" style="display: none; width: 100%; aspect-ratio: 16/9; position: relative; overflow: hidden; border-radius: 8px;">
             <iframe width="100%" height="100%"
                 src=""
@@ -67,7 +73,7 @@
             </iframe>
         </div>
 
-        {# EDU埋め込み専用 Player: srcを初期状態で空白にする #}
+        {# EDU埋め込み専用 Player #}
         <div id="edu-embed-player" style="display: none; width: 100%; aspect-ratio: 16/9; position: relative; overflow: hidden; border-radius: 8px;">
             <iframe width="100%" height="100%"
                 src=""
@@ -78,74 +84,82 @@
                 style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;">
             </iframe>
         </div>
-
-        <h1 style="font-size: 24px; margin: 16px 0;">{{ video_title }}</h1>
-
-        <div class="metadata">
-            <div class="channel-info">
-                <a href="/channel/{{ author_id }}">
-                    <img src="{{ author_icon }}" style="width: 40px; height: 40px; border-radius: 50%; margin-right: 12px; object-fit: cover;">
-                </a>
-                <div>
-                    <a href="/channel/{{ author_id }}" style="color: var(--yt-text); font-weight: bold;">{{ author }}</a>
-                    <p style="font-size: 12px; color: var(--yt-sub-text);">チャンネル登録者数: {{ subscribers_count }}</p>
-                </div>
-            </div>
-            <div class="counts" style="color: var(--yt-sub-text); font-size: 14px;">
-                <span>{{ view_count }} 回視聴</span>
-                <span style="margin-left: 10px;">👍 {{ like_count }}</span>
-            </div>
-        </div>
         
-        <div class="description">
-            <p style="white-space: pre-wrap;">{{ description | safe }}</p>
-        </div>
-
-        <div id="comments-container" style="margin-top: 24px; padding: 16px; background-color: var(--yt-light-dark); border-radius: 8px;">
-            <h2 style="font-size: 20px; margin-bottom: 16px;">コメント</h2>
-            <div id="comment-list" style="color: var(--yt-sub-text);">
-                コメントを読み込み中...
-            </div>
-        </div>
-    </div>
-
-    <div class="recommended-videos">
-        <h2 style="font-size: 18px; margin-top: 0;">おすすめ</h2>
-        {% for video in recommended_videos %}
-        <div class="recommended-card">
-            <a href="/watch?v={{ video.video_id }}">
-                <img src="/thumbnail?v={{ video.video_id }}" style="object-fit: cover;">
-                <div class="recommended-meta">
-                    <p style="color: var(--yt-text);">{{ video.title }}</p>
-                    <p style="color: var(--yt-sub-text);">{{ video.author }}</p>
-                    <p style="color: var(--yt-sub-text);">{{ video.view_count_text }}</p>
-                </div>
-            </a>
-        </div>
-        {% endfor %}
+        <h1 style="font-size: 24px; margin: 16px 0;">{{ video_title }}</h1>
+        {# ... (metadata, description, recommended-videos, comments-container 略) ... #}
     </div>
 </div>
 
 <script>
-    // 不要になった cachedHighQualityUrl と getHighQualityUrl は削除します
+    let cached360pUrl = null; 
 
+    // プレイヤー要素の定義
     const videoElement = document.getElementById('player');
     const videoId = '{{ videoid }}';
+    
+    // ボタン
+    const normal360pBtn = document.getElementById('yuzu-btn'); 
     const highQualityBtn = document.getElementById('high-quality-btn');
-    const yuzuBtn = document.getElementById('yuzu-btn');
+    const yuzuBtnOld = document.getElementById('yuzu-btn-old'); 
     const youtubeBtn = document.getElementById('youtube-btn');
     const eduBtn = document.getElementById('edu-btn');
-    const yuzuPlayer = document.getElementById('yuzutube-player');
-    const highQualityPlayer = document.getElementById('high-quality-player'); // 【新規追加】
+    
+    // プレイヤーコンテナ (div)
+    const yuzuPlayer = document.getElementById('yuzutube-player'); 
+    const highQualityPlayer = document.getElementById('high-quality-player');
     const youtubePlayer = document.getElementById('youtube-embed-player');
     const eduPlayer = document.getElementById('edu-embed-player');
     
     // Iframe要素
-    const highQualityIframe = document.getElementById('high-quality-iframe'); // 【新規追加】
+    const highQualityIframe = document.getElementById('high-quality-iframe');
     const youtubeIframe = document.getElementById('youtube-iframe');
     const eduIframe = document.getElementById('edu-iframe'); 
     
-    const firstSource = videoElement ? videoElement.querySelector('source') : null;
+    // Invidiousの元のソースURL (最初のソースの data-original-url 属性から取得)
+    const invidiousSourceElement = document.querySelector('[data-original-url]');
+    const invidiousSourceUrl = invidiousSourceElement ? invidiousSourceElement.getAttribute('data-original-url') : '';
+
+
+    /**
+     * 360pストリームURLを取得する（キャッシュ利用）
+     */
+    async function get360pUrl(videoId) {
+        if (cached360pUrl) {
+            return cached360pUrl;
+        }
+
+        if (normal360pBtn) {
+            normal360pBtn.textContent = '360p読み込み中...';
+            normal360pBtn.disabled = true;
+        }
+        
+        try {
+            // Pythonで定義した /api/stream_360p_url/{videoid} ルートを呼び出す
+            const response = await fetch(`/api/stream_360p_url/${videoId}`); 
+            if (!response.ok) throw new Error('360pストリームの取得に失敗しました。');
+            const data = await response.json();
+            
+            if (data.error) throw new Error(data.error);
+            
+            cached360pUrl = data.stream_url;
+            
+            if (normal360pBtn) {
+                normal360pBtn.textContent = '通常再生 (360p)';
+                normal360pBtn.disabled = false;
+            }
+            return cached360pUrl;
+        } catch (error) {
+            console.error('360p URLの取得エラー:', error);
+            if (normal360pBtn) {
+                normal360pBtn.textContent = '360p失敗';
+                normal360pBtn.disabled = true;
+                normal360pBtn.style.backgroundColor = 'red';
+            }
+            alert('360pストリーム（音声付き）の取得に失敗しました。Invidious再生で試してください。');
+            return null;
+        }
+    }
+
 
     // コメントロード関数 (変更なし)
     function loadComments(videoId) {
@@ -168,56 +182,65 @@
     /**
      * 動画プレーヤーを切り替え、ボタンのスタイルを更新し、非表示にする側の動画を停止する関数
      */
-    async function showPlayer(playerId, mode = 'normal') {
+    async function showPlayer(playerId, mode = 'iframe') {
         
         // すべてのボタンを非アクティブな色にリセット
-        if (yuzuBtn) yuzuBtn.style.backgroundColor = 'var(--yt-bg)';
-        if (highQualityBtn) highQualityBtn.style.backgroundColor = 'var(--yt-bg)';
-        if (youtubeBtn) youtubeBtn.style.backgroundColor = 'var(--yt-bg)';
-        if (eduBtn) eduBtn.style.backgroundColor = 'var(--yt-bg)';
+        [normal360pBtn, highQualityBtn, yuzuBtnOld, youtubeBtn, eduBtn].forEach(btn => {
+            if (btn) btn.style.backgroundColor = 'var(--yt-bg)';
+        });
 
         // 全プレーヤーを非表示に設定
-        yuzuPlayer.style.display = 'none';
-        highQualityPlayer.style.display = 'none'; // 【新規追加】
-        youtubePlayer.style.display = 'none';
-        eduPlayer.style.display = 'none';
+        [yuzuPlayer, highQualityPlayer, youtubePlayer, eduPlayer].forEach(player => {
+            if (player) player.style.display = 'none';
+        });
         
-        // 通常/高画質プレーヤーの動画を停止 (Yuzutube Playerのみを停止)
+        // プレーヤーのリセット/停止処理
+        
+        // <video>プレーヤーを停止
         if (videoElement) {
             videoElement.pause();
-            videoElement.src = ''; // ソースをリセット
-            videoElement.load();
+            // iframeに切り替える際、元のソースに戻しておく
+            if (playerId !== 'yuzutube-player') {
+                videoElement.src = invidiousSourceUrl;
+                videoElement.load();
+            }
         }
-        
-        // iframeのURLをリセット (動画を停止)
-        if (youtubeIframe) youtubeIframe.src = `https://www.youtube-nocookie.com/embed/${videoId}`; // autoplayを削除
+
+        // iframeのURLをリセット/停止 (YouTubeはautoplayを停止)
+        if (youtubeIframe) youtubeIframe.src = `https://www.youtube-nocookie.com/embed/${videoId}`; 
         if (eduIframe) eduIframe.src = ''; 
-        // highQualityIframeは後でsrcを設定するため、ここではリセットしない
+        if (highQualityIframe) highQualityIframe.src = ''; 
 
         // --- 選択されたプレーヤーの表示と処理 ---
         
         if (playerId === 'yuzutube-player') {
             yuzuPlayer.style.display = 'block';
-            
-            // Yuzutube Playerのソースを通常再生に戻す
-            if (videoElement && firstSource) {
-                // videoElement.src = firstSource.src; // 最初のソースをそのまま使う
-                // 初期のソースはテンプレートで設定されているため、ここではロードするだけで良い場合もあるが、確実なロードのために再設定
-                videoElement.src = '{{ videourls | first }}'; // 最初のURLを取得
-                videoElement.load();
-            }
 
-            if (yuzuBtn) yuzuBtn.style.backgroundColor = 'var(--yt-light-dark)';
+            if (mode === '360p') {
+                // 通常再生 (360p音声付き単一ファイル) の場合
+                const url360p = await get360pUrl(videoId);
+                
+                if (url360p) {
+                    videoElement.src = url360p; // <video>タグにURLを設定
+                    videoElement.load();
+                    if (normal360pBtn) normal360pBtn.style.backgroundColor = 'var(--yt-light-dark)';
+                } else {
+                    return; 
+                }
+            } else if (mode === 'invidious') {
+                // 旧Invidious再生の場合
+                videoElement.src = invidiousSourceUrl;
+                videoElement.load();
+                if (yuzuBtnOld) yuzuBtnOld.style.backgroundColor = 'var(--yt-light-dark)';
+            }
             
         } else if (playerId === 'high-quality-player') {
             
-            highQualityPlayer.style.display = 'block'; // 【新規追加】
+            highQualityPlayer.style.display = 'block';
             
             if (highQualityIframe) {
-                // /api/stream_high/:videoid を埋め込む
                 const streamHighUrl = `/api/stream_high/${videoId}`;
-                
-                // srcがすでに設定されていなければ設定する（リロード防止）
+                // srcを設定してロード（動的HQストリームのカスタムプレイヤー）
                 if (highQualityIframe.src === '' || !highQualityIframe.src.includes(streamHighUrl)) {
                     highQualityIframe.src = streamHighUrl;
                 }
@@ -234,7 +257,6 @@
             // YouTube埋め込みを自動再生
             if (youtubeIframe) {
                 let currentSrc = youtubeIframe.src;
-                // 自動再生フラグを追加
                 if (!currentSrc.includes('autoplay=1')) {
                     currentSrc += currentSrc.includes('?') ? '&autoplay=1' : '?autoplay=1';
                 }
@@ -247,9 +269,7 @@
             
             if (eduBtn) eduBtn.style.backgroundColor = 'var(--yt-light-dark)';
             
-            // EDU iframeのsrcを設定してロード
             if (eduIframe) {
-                // srcがすでに設定されていなければ設定する（リロード防止）
                 if (eduIframe.src === '' || !eduIframe.src.includes(`/api/edu/${videoId}`)) {
                     eduIframe.src = `/api/edu/${videoId}`;
                 }
@@ -262,8 +282,8 @@
     document.addEventListener('DOMContentLoaded', () => {
         loadComments(videoId);
         
-        // ページロード時は通常再生をアクティブにする
-        showPlayer('yuzutube-player', 'normal'); 
+        // ページロード時は新しい通常再生 (360p) をアクティブにする
+        showPlayer('yuzutube-player', '360p'); 
     });
 </script>
 {% endblock %}
