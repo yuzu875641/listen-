@@ -279,12 +279,10 @@ def get_360p_single_url(videoid: str) -> str:
         raise ValueError(f"Error processing external stream API response: {e}") from e
 
 
-
 def fetch_high_quality_streams(videoid: str) -> dict:
     """
-    外部APIから動画データを取得し、1080pの動画URL（音声なし）と
-    最高音質の音声URLを抽出して返す。1080pがない場合は、利用可能な
-    最高画質のURLを選択する。
+    外部APIから動画データを取得し、1080pの動画URL（音声なし）と、
+    iPad互換性を考慮した最高音質（M4A/AAC）の音声URLを抽出して返す。
     
     前提: requests, json, getRandomUserAgent, max_api_wait_time, APITimeoutError 
           は外部で定義/インポートされていること。
@@ -308,6 +306,7 @@ def fetch_high_quality_streams(videoid: str) -> dict:
         def get_video_quality_score(f):
             quality_str = f.get("quality", "0").lower().replace("p", "").replace("p60", "60").replace("p30", "30").replace("high", "0")
             try:
+                # フレームレート考慮 (例: 1080p60 > 1080p30)
                 if "60" in quality_str:
                     return int(quality_str.replace("60", "")) * 100 + 60
                 else:
@@ -315,7 +314,7 @@ def fetch_high_quality_streams(videoid: str) -> dict:
             except ValueError:
                 return 0
             
-        # 1. 動画ストリーム（音声なし）の抽出とソート
+        # 1. 動画ストリーム（音声なし）の抽出とソート (1080p優先)
         video_formats = [f for f in formats if f.get("acodec") == "none" and f.get("vcodec") != "none"]
         video_formats.sort(key=get_video_quality_score, reverse=True)
         
@@ -330,13 +329,29 @@ def fetch_high_quality_streams(videoid: str) -> dict:
         elif video_formats:
             # 1080pがない場合は、利用可能な最高画質を選択
             high_quality_video_url = video_formats[0]["url"]
+            
+        # 2. 音声ストリーム（映像なし）の抽出と選択 (M4A/AACを優先)
         
-        # 2. 音声ストリーム（映像なし）の抽出とソート
-        audio_formats = [f for f in formats if f.get("vcodec") == "none" and f.get("acodec") != "none"]
+        # iPad互換性の高いM4Aコンテナ (acodec=aac, ext=m4a) のストリームをフィルタリング
+        # YouTubeの単体音声ストリームは通常この形式
+        audio_formats_m4a = [
+            f for f in formats 
+            if f.get("vcodec") == "none" and 
+               f.get("acodec") != "none" and 
+               f.get("ext") == "m4a"
+        ]
         
-        # ファイルサイズ（品質の代理指標）でソートし、最高音質を選択
-        audio_formats.sort(key=lambda x: int(x.get("filesize", 0) or 0), reverse=True) 
-        high_quality_audio_url = audio_formats[0]["url"] if audio_formats else None
+        high_quality_audio_url = None
+        
+        if audio_formats_m4a:
+            # M4A/AACがあれば、ファイルサイズ（ビットレートの代理指標）でソートし、最高音質を選択
+            audio_formats_m4a.sort(key=lambda x: int(x.get("filesize", 0) or 0), reverse=True)
+            high_quality_audio_url = audio_formats_m4a[0]["url"]
+        else:
+            # M4A/AACがない場合、他の利用可能な最高音質（元のロジック）を選択
+            audio_formats_other = [f for f in formats if f.get("vcodec") == "none" and f.get("acodec") != "none"]
+            audio_formats_other.sort(key=lambda x: int(x.get("filesize", 0) or 0), reverse=True)
+            high_quality_audio_url = audio_formats_other[0]["url"] if audio_formats_other else None
         
         if not high_quality_video_url or not high_quality_audio_url:
             raise ValueError("Could not find both high-quality video and audio streams.")
@@ -348,11 +363,10 @@ def fetch_high_quality_streams(videoid: str) -> dict:
         }
 
     except requests.exceptions.HTTPError as e:
-        # APITimeoutError は外部で定義されたカスタム例外と仮定
         raise APITimeoutError(f"External stream API returned HTTP error: {e.response.status_code}") from e
     except (requests.exceptions.RequestException, ValueError, json.JSONDecodeError) as e:
-        # APITimeoutError は外部で定義されたカスタム例外と仮定
         raise APITimeoutError(f"Error processing external stream API response: {e}") from e
+        
 # 新規追加: /api/edu から呼び出す外部APIヘルパー関数
 async def fetch_embed_url_from_external_api(videoid: str) -> str:
     """
