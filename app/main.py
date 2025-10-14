@@ -25,7 +25,7 @@ def isJSON(json_str):
 max_time = 10.0
 max_api_wait_time = (3.0, 5.0)
 failed = "Load Failed"
-MAX_RETRIES = 3   # ストリームAPIリトライ回数
+MAX_RETRIES = 5   # ストリームAPIリトライ回数
 RETRY_DELAY = 1.0 # ストリームAPIリトライ待機時間 (秒)
 
 # 新規追加: /api/edu で使用する外部ストリームAPIのURL
