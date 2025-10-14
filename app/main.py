@@ -37,6 +37,7 @@ invidious_api_data = {
         'https://yt.omada.cafe/',
         'https://inv.perditum.com/',
         'https://iv.melmac.space/', 
+        'https://invidious.nikkosphere.com/',
     ], 
     'playlist': [
         'https://invidious.ducks.party/',
