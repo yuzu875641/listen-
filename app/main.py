@@ -235,7 +235,7 @@ def get_360p_single_url(videoid: str) -> str:
     """
     外部APIから音声付きの360p単一ファイルのURLを抽出して返す (itag 18 優先)。
     """
-    YTDL_API_URL = f"https://ytdlp-cache.onrender.com/dl/{videoid}"
+    YTDL_API_URL = f"https://ytdlp-cache-xgpc.vercel.app/dl/{videoid}"
     
     try:
         res = requests.get(
